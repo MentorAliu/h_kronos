@@ -24,6 +24,7 @@ outputs/*
 !data/raw/.gitkeep
 !data/clean/.gitkeep
 !outputs/forecasts/
+outputs/forecasts/*
 !outputs/forecasts/.gitkeep
 !outputs/metrics/
 !outputs/metrics/.gitkeep

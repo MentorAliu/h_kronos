@@ -214,6 +214,12 @@ python scripts/check_kronos_runtime.py --kronos-repo-path vendor/Kronos --device
 python scripts/check_kronos_runtime.py --kronos-repo-path vendor/Kronos --device cuda:0 --mode model
 ```
 
+Initial forecast command:
+
+```text
+python scripts/run_kronos_forecast.py --manifest latest --kronos-repo-path vendor/Kronos --device cuda:0 --lookback 512
+```
+
 Kronos input shape:
 
 ```text
@@ -228,6 +234,7 @@ Acceptance criteria:
 - `pred_len` is `1`.
 - `1h` and `15m` are run as separate regular time-series forecasts.
 - No future candles are available to the forecast function.
+- The command fails clearly if a clean dataset has fewer rows than the requested lookback.
 
 ## Phase 4: Walk-Forward Evaluation
 

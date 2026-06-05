@@ -1,0 +1,75 @@
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+SRC = ROOT / "src"
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
+
+from hourly_prediction.kronos_runner import (  # noqa: E402
+    DEFAULT_DEVICE,
+    DEFAULT_LOOKBACK,
+    DEFAULT_PRED_LEN,
+    KronosForecastError,
+    run_kronos_forecast,
+)
+from hourly_prediction.kronos_runtime import (  # noqa: E402
+    DEFAULT_KRONOS_MODEL,
+    DEFAULT_KRONOS_TOKENIZER,
+    KronosRuntimeError,
+)
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Run one next-candle Kronos forecast for each dataset in a refresh manifest."
+    )
+    parser.add_argument("--manifest", default="latest")
+    parser.add_argument(
+        "--manifest-dir",
+        type=Path,
+        default=ROOT / "outputs" / "manifests",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=ROOT / "outputs" / "forecasts",
+    )
+    parser.add_argument("--kronos-repo-path", type=Path, required=True)
+    parser.add_argument("--device", default=DEFAULT_DEVICE)
+    parser.add_argument("--lookback", type=int, default=DEFAULT_LOOKBACK)
+    parser.add_argument("--pred-len", type=int, default=DEFAULT_PRED_LEN)
+    parser.add_argument("--model-name", default=DEFAULT_KRONOS_MODEL)
+    parser.add_argument("--tokenizer-name", default=DEFAULT_KRONOS_TOKENIZER)
+    return parser.parse_args()
+
+
+def main() -> int:
+    args = parse_args()
+    try:
+        run = run_kronos_forecast(
+            manifest=args.manifest,
+            manifest_dir=args.manifest_dir,
+            output_dir=args.output_dir,
+            kronos_repo_path=args.kronos_repo_path,
+            device=args.device,
+            lookback=args.lookback,
+            pred_len=args.pred_len,
+            model_name=args.model_name,
+            tokenizer_name=args.tokenizer_name,
+        )
+    except (KronosForecastError, KronosRuntimeError) as exc:
+        print(f"Kronos forecast failed: {exc}", file=sys.stderr)
+        return 1
+
+    print(f"manifest: {run.manifest_path}")
+    print(f"forecast: {run.output_path}")
+    print(f"forecast rows: {run.rows}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
