@@ -270,6 +270,12 @@ Minimum metrics:
 - Directional accuracy.
 - Predicted return vs actual return.
 
+Phase 4A starts with a naive close-persistence baseline only:
+
+```text
+python scripts/evaluate_baseline.py --manifest latest --lookback 512 --output-dir outputs/metrics
+```
+
 Acceptance criteria:
 
 - Evaluation windows cannot include the target candle in the input.
