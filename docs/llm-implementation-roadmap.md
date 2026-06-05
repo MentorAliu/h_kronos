@@ -160,6 +160,29 @@ Acceptance criteria:
 - Clean outputs contain only closed candles.
 - Tests cover gaps, duplicates, bad ordering, and unfinished candles.
 
+## Phase 2.5: One-Command Candle Refresh
+
+Goal: provide a convenience wrapper for the completed fetch and validation flow.
+
+Deliverables:
+
+- `src/hourly_prediction/refresh.py`
+- `scripts/refresh_candles.py`
+
+Script behavior:
+
+```text
+python scripts/refresh_candles.py --symbol BTC/USDT --limit 1000
+```
+
+Acceptance criteria:
+
+- Refreshes `1h` and `15m` by default.
+- Saves raw CSVs under `data/raw/`.
+- Saves clean CSVs under `data/clean/`.
+- Prints the raw and clean output paths for each timeframe.
+- Does not add Kronos inference, evaluation, backtesting, or new timeframes.
+
 ## Phase 3: Kronos Integration
 
 Goal: run one next-candle forecast for each timeframe.
