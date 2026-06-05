@@ -34,25 +34,32 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--raw-dir", type=Path, default=ROOT / "data" / "raw")
     parser.add_argument("--clean-dir", type=Path, default=ROOT / "data" / "clean")
+    parser.add_argument(
+        "--manifest-dir",
+        type=Path,
+        default=ROOT / "outputs" / "manifests",
+    )
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
     timeframes = tuple(args.timeframe or DEFAULT_TIMEFRAMES)
-    results = refresh_candles(
+    run = refresh_candles(
         exchange_id=args.exchange,
         symbol=args.symbol,
         timeframes=timeframes,
         limit=args.limit,
         raw_dir=args.raw_dir,
         clean_dir=args.clean_dir,
+        manifest_dir=args.manifest_dir,
     )
 
-    for result in results:
+    for result in run.results:
         print(f"{result.timeframe} raw: {result.raw_path}")
         print(f"{result.timeframe} clean: {result.clean_path}")
         print(f"{result.timeframe} clean rows: {result.clean_rows}")
+    print(f"manifest: {run.manifest_path}")
 
     return 0
 

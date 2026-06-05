@@ -168,6 +168,7 @@ Deliverables:
 
 - `src/hourly_prediction/refresh.py`
 - `scripts/refresh_candles.py`
+- JSON manifests under `outputs/manifests/`
 
 Script behavior:
 
@@ -181,6 +182,7 @@ Acceptance criteria:
 - Saves raw CSVs under `data/raw/`.
 - Saves clean CSVs under `data/clean/`.
 - Prints the raw and clean output paths for each timeframe.
+- Writes one success manifest only after every requested timeframe validates.
 - Does not add Kronos inference, evaluation, backtesting, or new timeframes.
 
 ## Phase 3: Kronos Integration
