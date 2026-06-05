@@ -191,6 +191,8 @@ Goal: run one next-candle forecast for each timeframe.
 
 Deliverables:
 
+- `docs/kronos-runtime.md`
+- `scripts/check_kronos_runtime.py`
 - `src/hourly_prediction/kronos_runner.py`
 - `scripts/run_kronos_forecast.py`
 - Forecast CSVs under `outputs/forecasts/`
@@ -202,6 +204,14 @@ model: Kronos-small or Kronos-base
 lookback: 400-512
 pred_len: 1
 timeframes: 1h, 15m
+device: cuda:0
+```
+
+Before forecast implementation, verify the CUDA runtime with:
+
+```text
+python scripts/check_kronos_runtime.py --kronos-repo-path vendor/Kronos --device cuda:0 --mode cuda
+python scripts/check_kronos_runtime.py --kronos-repo-path vendor/Kronos --device cuda:0 --mode model
 ```
 
 Kronos input shape:
