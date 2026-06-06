@@ -109,6 +109,7 @@ def test_walk_forward_uses_recent_windows_without_target_leakage(tmp_path) -> No
         device="cuda:0",
         lookback=2,
         max_windows=2,
+        sma_window=2,
         model_name="Fake/Kronos",
         tokenizer_name="Fake/Tokenizer",
         now=pd.Timestamp("2026-06-02T00:00:00Z"),
@@ -136,8 +137,13 @@ def test_walk_forward_uses_recent_windows_without_target_leakage(tmp_path) -> No
     assert output["kronos_close"].tolist() == [103.0, 106.0]
     assert output["kronos_close_error"].tolist() == [-2.0, 2.0]
     assert output["naive_close_error"].tolist() == [-3.0, 1.0]
+    assert output["sma_close"].tolist() == [102.5, 103.5]
+    assert output["sma_close_error"].tolist() == [-2.5, -0.5]
+    assert output["sma_absolute_error"].tolist() == [2.5, 0.5]
+    assert output["sma_squared_error"].tolist() == [6.25, 0.25]
     assert output["kronos_direction_hit"].tolist() == [True, False]
     assert output["naive_direction_hit"].tolist() == [False, False]
+    assert output["sma_direction_hit"].tolist() == [True, True]
 
 
 def test_walk_forward_requires_positive_max_windows(tmp_path) -> None:
@@ -154,5 +160,23 @@ def test_walk_forward_requires_positive_max_windows(tmp_path) -> None:
             kronos_repo_path=tmp_path / "Kronos",
             lookback=2,
             max_windows=0,
+            predictor_loader=lambda **_: FakePredictor(),
+        )
+
+
+def test_walk_forward_requires_lookback_at_least_sma_window(tmp_path) -> None:
+    clean_path = tmp_path / "clean" / "candles.csv"
+    manifest_path = tmp_path / "manifests" / "run_manifest.json"
+    write_clean(clean_path, closes=[100.0, 101.0, 102.0, 103.0])
+    write_manifest(manifest_path, clean_path=clean_path)
+
+    with pytest.raises(EvaluationError, match="lookback must be at least sma_window"):
+        evaluate_kronos_walk_forward(
+            manifest=manifest_path,
+            manifest_dir=tmp_path / "manifests",
+            output_dir=tmp_path / "metrics",
+            kronos_repo_path=tmp_path / "Kronos",
+            lookback=2,
+            sma_window=3,
             predictor_loader=lambda **_: FakePredictor(),
         )

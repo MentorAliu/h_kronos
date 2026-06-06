@@ -108,6 +108,12 @@ WALK_FORWARD_EVALUATION_COLUMNS = [
     "naive_squared_error",
     "naive_return",
     "naive_direction_hit",
+    "sma_close",
+    "sma_close_error",
+    "sma_absolute_error",
+    "sma_squared_error",
+    "sma_return",
+    "sma_direction_hit",
 ]
 WALK_FORWARD_SUMMARY_REQUIRED_COLUMNS = [
     "timeframe",
@@ -115,8 +121,11 @@ WALK_FORWARD_SUMMARY_REQUIRED_COLUMNS = [
     "kronos_squared_error",
     "naive_absolute_error",
     "naive_squared_error",
+    "sma_absolute_error",
+    "sma_squared_error",
     "kronos_direction_hit",
     "naive_direction_hit",
+    "sma_direction_hit",
     "actual_return",
     "forecasted_return",
 ]
@@ -127,12 +136,16 @@ WALK_FORWARD_SUMMARY_COLUMNS = [
     "kronos_rmse",
     "naive_mae",
     "naive_rmse",
+    "sma_mae",
+    "sma_rmse",
     "kronos_directional_accuracy",
     "naive_directional_accuracy",
+    "sma_directional_accuracy",
     "average_actual_return",
     "average_forecasted_return",
 ]
 DEFAULT_MAX_WALK_FORWARD_WINDOWS = 20
+DEFAULT_SMA_WINDOW = 20
 
 
 class EvaluationError(ValueError):
@@ -331,6 +344,7 @@ def evaluate_kronos_walk_forward(
     device: str = DEFAULT_DEVICE,
     lookback: int = DEFAULT_LOOKBACK,
     max_windows: int = DEFAULT_MAX_WALK_FORWARD_WINDOWS,
+    sma_window: int = DEFAULT_SMA_WINDOW,
     pred_len: int = DEFAULT_PRED_LEN,
     model_name: str = DEFAULT_KRONOS_MODEL,
     tokenizer_name: str = DEFAULT_KRONOS_TOKENIZER,
@@ -343,6 +357,10 @@ def evaluate_kronos_walk_forward(
         raise EvaluationError("lookback must be positive")
     if max_windows <= 0:
         raise EvaluationError("max_windows must be positive")
+    if sma_window <= 0:
+        raise EvaluationError("sma_window must be positive")
+    if lookback < sma_window:
+        raise EvaluationError("lookback must be at least sma_window")
 
     manifest_path = resolve_manifest_path(manifest, manifest_dir=manifest_dir)
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -373,6 +391,7 @@ def evaluate_kronos_walk_forward(
                     lookback=lookback,
                     pred_len=pred_len,
                     window_number=window_number,
+                    sma_window=sma_window,
                 )
             )
 
@@ -409,8 +428,11 @@ def summarize_walk_forward_metrics(
                 "kronos_rmse": float(np.sqrt(group["kronos_squared_error"].mean())),
                 "naive_mae": float(group["naive_absolute_error"].mean()),
                 "naive_rmse": float(np.sqrt(group["naive_squared_error"].mean())),
+                "sma_mae": float(group["sma_absolute_error"].mean()),
+                "sma_rmse": float(np.sqrt(group["sma_squared_error"].mean())),
                 "kronos_directional_accuracy": float(group["kronos_direction_hit"].mean()),
                 "naive_directional_accuracy": float(group["naive_direction_hit"].mean()),
+                "sma_directional_accuracy": float(group["sma_direction_hit"].mean()),
                 "average_actual_return": float(group["actual_return"].mean()),
                 "average_forecasted_return": float(group["forecasted_return"].mean()),
             }
@@ -508,6 +530,8 @@ def _normalize_walk_forward_metrics(metrics: pd.DataFrame) -> pd.DataFrame:
         "kronos_squared_error",
         "naive_absolute_error",
         "naive_squared_error",
+        "sma_absolute_error",
+        "sma_squared_error",
         "actual_return",
         "forecasted_return",
     ]
@@ -516,7 +540,7 @@ def _normalize_walk_forward_metrics(metrics: pd.DataFrame) -> pd.DataFrame:
     if normalized[numeric_columns].isna().any().any():
         raise EvaluationError("Walk-forward metrics contain invalid numeric values")
 
-    for column in ("kronos_direction_hit", "naive_direction_hit"):
+    for column in ("kronos_direction_hit", "naive_direction_hit", "sma_direction_hit"):
         normalized[column] = _coerce_boolean_series(normalized[column], column=column)
 
     normalized["timeframe"] = normalized["timeframe"].astype(str)
@@ -614,6 +638,7 @@ def _evaluate_walk_forward_window(
     lookback: int,
     pred_len: int,
     window_number: int,
+    sma_window: int,
 ) -> dict[str, Any]:
     input_window = window.input_window.copy()
     x_df = input_window[CLEAN_COLUMNS[1:]].copy()
@@ -651,6 +676,15 @@ def _evaluate_walk_forward_window(
         current_close=current_close,
         target_close=target_close,
         kronos_close=kronos_close,
+    )
+    sma_close = float(input_window["close"].tail(sma_window).mean())
+    metrics.update(
+        _sma_metric_values(
+            current_close=current_close,
+            actual_return=metrics["actual_return"],
+            target_close=target_close,
+            sma_close=sma_close,
+        )
     )
 
     return {
@@ -723,6 +757,25 @@ def _close_metric_values(
         "naive_squared_error": naive_error**2,
         "naive_return": naive_return,
         "naive_direction_hit": bool(np.sign(naive_return) == np.sign(actual_return)),
+    }
+
+
+def _sma_metric_values(
+    *,
+    current_close: float,
+    actual_return: float,
+    target_close: float,
+    sma_close: float,
+) -> dict[str, Any]:
+    sma_error = sma_close - target_close
+    sma_return = _safe_return(sma_close, current_close)
+    return {
+        "sma_close": sma_close,
+        "sma_close_error": sma_error,
+        "sma_absolute_error": abs(sma_error),
+        "sma_squared_error": sma_error**2,
+        "sma_return": sma_return,
+        "sma_direction_hit": bool(np.sign(sma_return) == np.sign(actual_return)),
     }
 
 

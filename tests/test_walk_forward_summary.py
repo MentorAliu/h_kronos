@@ -22,8 +22,11 @@ def write_metrics(path: Path) -> Path:
                 "kronos_squared_error": 4.0,
                 "naive_absolute_error": 4.0,
                 "naive_squared_error": 16.0,
+                "sma_absolute_error": 3.0,
+                "sma_squared_error": 9.0,
                 "kronos_direction_hit": True,
                 "naive_direction_hit": False,
+                "sma_direction_hit": True,
                 "actual_return": 0.02,
                 "forecasted_return": 0.01,
             },
@@ -33,8 +36,11 @@ def write_metrics(path: Path) -> Path:
                 "kronos_squared_error": 16.0,
                 "naive_absolute_error": 2.0,
                 "naive_squared_error": 4.0,
+                "sma_absolute_error": 5.0,
+                "sma_squared_error": 25.0,
                 "kronos_direction_hit": False,
                 "naive_direction_hit": True,
+                "sma_direction_hit": False,
                 "actual_return": -0.01,
                 "forecasted_return": 0.03,
             },
@@ -44,8 +50,11 @@ def write_metrics(path: Path) -> Path:
                 "kronos_squared_error": 1.0,
                 "naive_absolute_error": 3.0,
                 "naive_squared_error": 9.0,
+                "sma_absolute_error": 2.0,
+                "sma_squared_error": 4.0,
                 "kronos_direction_hit": True,
                 "naive_direction_hit": False,
+                "sma_direction_hit": True,
                 "actual_return": 0.005,
                 "forecasted_return": 0.006,
             },
@@ -72,8 +81,11 @@ def test_summarize_walk_forward_metrics_writes_per_timeframe_summary(tmp_path) -
     assert one_hour["kronos_rmse"] == pytest.approx(10.0**0.5)
     assert one_hour["naive_mae"] == pytest.approx(3.0)
     assert one_hour["naive_rmse"] == pytest.approx(10.0**0.5)
+    assert one_hour["sma_mae"] == pytest.approx(4.0)
+    assert one_hour["sma_rmse"] == pytest.approx(17.0**0.5)
     assert one_hour["kronos_directional_accuracy"] == pytest.approx(0.5)
     assert one_hour["naive_directional_accuracy"] == pytest.approx(0.5)
+    assert one_hour["sma_directional_accuracy"] == pytest.approx(0.5)
     assert one_hour["average_actual_return"] == pytest.approx(0.005)
     assert one_hour["average_forecasted_return"] == pytest.approx(0.02)
 
