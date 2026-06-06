@@ -4,10 +4,12 @@ __pycache__/
 
 .pytest_cache/
 .pytest_tmp/
+.pytest_tmp*/
 .mypy_cache/
 .ruff_cache/
 
 .venv/
+.venv-*/
 venv/
 env/
 
