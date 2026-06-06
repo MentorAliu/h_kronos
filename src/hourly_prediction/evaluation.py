@@ -109,6 +109,29 @@ WALK_FORWARD_EVALUATION_COLUMNS = [
     "naive_return",
     "naive_direction_hit",
 ]
+WALK_FORWARD_SUMMARY_REQUIRED_COLUMNS = [
+    "timeframe",
+    "kronos_absolute_error",
+    "kronos_squared_error",
+    "naive_absolute_error",
+    "naive_squared_error",
+    "kronos_direction_hit",
+    "naive_direction_hit",
+    "actual_return",
+    "forecasted_return",
+]
+WALK_FORWARD_SUMMARY_COLUMNS = [
+    "timeframe",
+    "rows",
+    "kronos_mae",
+    "kronos_rmse",
+    "naive_mae",
+    "naive_rmse",
+    "kronos_directional_accuracy",
+    "naive_directional_accuracy",
+    "average_actual_return",
+    "average_forecasted_return",
+]
 DEFAULT_MAX_WALK_FORWARD_WINDOWS = 20
 
 
@@ -145,6 +168,13 @@ class ForecastEvaluationRun:
 @dataclass(frozen=True)
 class WalkForwardEvaluationRun:
     manifest_path: Path
+    output_path: Path
+    rows: int
+
+
+@dataclass(frozen=True)
+class WalkForwardSummaryRun:
+    metrics_path: Path
     output_path: Path
     rows: int
 
@@ -359,6 +389,46 @@ def evaluate_kronos_walk_forward(
     )
 
 
+def summarize_walk_forward_metrics(
+    *,
+    metrics: str | Path,
+    output_dir: Path,
+) -> WalkForwardSummaryRun:
+    metrics_path = Path(metrics)
+    if not metrics_path.exists():
+        raise EvaluationError(f"Walk-forward metrics file does not exist: {metrics_path}")
+
+    metric_rows = _normalize_walk_forward_metrics(pd.read_csv(metrics_path))
+    rows: list[dict[str, Any]] = []
+    for timeframe, group in metric_rows.groupby("timeframe", sort=True):
+        rows.append(
+            {
+                "timeframe": timeframe,
+                "rows": int(len(group)),
+                "kronos_mae": float(group["kronos_absolute_error"].mean()),
+                "kronos_rmse": float(np.sqrt(group["kronos_squared_error"].mean())),
+                "naive_mae": float(group["naive_absolute_error"].mean()),
+                "naive_rmse": float(np.sqrt(group["naive_squared_error"].mean())),
+                "kronos_directional_accuracy": float(group["kronos_direction_hit"].mean()),
+                "naive_directional_accuracy": float(group["naive_direction_hit"].mean()),
+                "average_actual_return": float(group["actual_return"].mean()),
+                "average_forecasted_return": float(group["forecasted_return"].mean()),
+            }
+        )
+
+    if not rows:
+        raise EvaluationError("Walk-forward metrics file contains no rows to summarize")
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = output_dir / _summary_filename(metrics_path)
+    pd.DataFrame(rows, columns=WALK_FORWARD_SUMMARY_COLUMNS).to_csv(output_path, index=False)
+    return WalkForwardSummaryRun(
+        metrics_path=metrics_path,
+        output_path=output_path,
+        rows=len(rows),
+    )
+
+
 def _normalize_clean(clean: pd.DataFrame, *, timeframe: str) -> pd.DataFrame:
     if list(clean.columns) != CLEAN_COLUMNS:
         raise EvaluationError(
@@ -418,6 +488,38 @@ def _normalize_forecast(forecast: pd.DataFrame) -> pd.DataFrame:
     if len(unsupported) > 0:
         raise EvaluationError("Forecast evaluation only supports pred_len=1")
 
+    return normalized
+
+
+def _normalize_walk_forward_metrics(metrics: pd.DataFrame) -> pd.DataFrame:
+    missing = [
+        column
+        for column in WALK_FORWARD_SUMMARY_REQUIRED_COLUMNS
+        if column not in metrics.columns
+    ]
+    if missing:
+        raise EvaluationError(
+            "Walk-forward metrics missing required column(s): " + ", ".join(missing)
+        )
+
+    normalized = metrics.copy()
+    numeric_columns = [
+        "kronos_absolute_error",
+        "kronos_squared_error",
+        "naive_absolute_error",
+        "naive_squared_error",
+        "actual_return",
+        "forecasted_return",
+    ]
+    for column in numeric_columns:
+        normalized[column] = pd.to_numeric(normalized[column], errors="coerce")
+    if normalized[numeric_columns].isna().any().any():
+        raise EvaluationError("Walk-forward metrics contain invalid numeric values")
+
+    for column in ("kronos_direction_hit", "naive_direction_hit"):
+        normalized[column] = _coerce_boolean_series(normalized[column], column=column)
+
+    normalized["timeframe"] = normalized["timeframe"].astype(str)
     return normalized
 
 
@@ -639,3 +741,35 @@ def _format_timestamp(timestamp: pd.Timestamp) -> str:
 
 def _model_slug(model_name: str) -> str:
     return model_name.split("/")[-1].lower()
+
+
+def _coerce_boolean_series(series: pd.Series, *, column: str) -> pd.Series:
+    if series.dtype == bool:
+        return series
+
+    mapped = series.map(
+        {
+            True: True,
+            False: False,
+            "True": True,
+            "False": False,
+            "true": True,
+            "false": False,
+            "1": True,
+            "0": False,
+            1: True,
+            0: False,
+        }
+    )
+    if mapped.isna().any():
+        raise EvaluationError(f"Walk-forward metrics contain invalid boolean values in {column}")
+    return mapped.astype(bool)
+
+
+def _summary_filename(metrics_path: Path) -> str:
+    stem = metrics_path.stem
+    if stem.endswith("_walk_forward_metrics"):
+        stem = stem.removesuffix("_walk_forward_metrics") + "_walk_forward_summary"
+    else:
+        stem = stem + "_summary"
+    return f"{stem}.csv"
