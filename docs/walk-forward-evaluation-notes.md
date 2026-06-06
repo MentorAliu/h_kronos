@@ -61,3 +61,23 @@ On this larger bounded sample, Kronos still did not beat naive close
 persistence on MAE/RMSE for either timeframe. SMA had better directional
 accuracy on `15m`, but materially worse close-error metrics. Continue treating
 these as research evaluation artifacts, not paper-trading signals.
+
+## 2026-06-06 Phase 4C Forecast Diagnostics
+
+Input diagnostics:
+
+```text
+outputs/metrics/binance_BTCUSDT_20260606T143156Z_kronos-small_walk_forward_diagnostics.csv
+```
+
+Summary:
+
+| Timeframe | Rows | Kronos Mean Signed Error | Naive Mean Signed Error | SMA Mean Signed Error | Kronos / Naive MAE Ratio | Kronos / SMA MAE Ratio | Random Direction Accuracy |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `15m` | 100 | 67.034759 | 12.280000 | 149.040575 | 1.651264 | 0.667475 | 0.24 |
+| `1h` | 100 | 115.952725 | 86.248100 | 1019.555880 | 1.382087 | 0.558840 | 0.47 |
+
+Kronos shows a positive signed close-error bias on both timeframes. It remains
+worse than naive close persistence on MAE, but better than the 20-candle SMA
+baseline on MAE. Directional behavior needs review separately from close-error
+metrics; this remains a diagnostics artifact and not a signal/backtest result.
