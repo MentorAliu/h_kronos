@@ -108,8 +108,83 @@ WALK_FORWARD_EVALUATION_COLUMNS = [
     "naive_squared_error",
     "naive_return",
     "naive_direction_hit",
+    "sma_close",
+    "sma_close_error",
+    "sma_absolute_error",
+    "sma_squared_error",
+    "sma_return",
+    "sma_direction_hit",
+]
+WALK_FORWARD_SUMMARY_REQUIRED_COLUMNS = [
+    "timeframe",
+    "kronos_absolute_error",
+    "kronos_squared_error",
+    "naive_absolute_error",
+    "naive_squared_error",
+    "sma_absolute_error",
+    "sma_squared_error",
+    "kronos_direction_hit",
+    "naive_direction_hit",
+    "sma_direction_hit",
+    "actual_return",
+    "forecasted_return",
+]
+WALK_FORWARD_SUMMARY_COLUMNS = [
+    "timeframe",
+    "rows",
+    "kronos_mae",
+    "kronos_rmse",
+    "naive_mae",
+    "naive_rmse",
+    "sma_mae",
+    "sma_rmse",
+    "kronos_directional_accuracy",
+    "naive_directional_accuracy",
+    "sma_directional_accuracy",
+    "average_actual_return",
+    "average_forecasted_return",
+]
+WALK_FORWARD_DIAGNOSTIC_REQUIRED_COLUMNS = [
+    "timeframe",
+    "kronos_close_error",
+    "kronos_absolute_error",
+    "naive_close_error",
+    "naive_absolute_error",
+    "sma_close_error",
+    "sma_absolute_error",
+    "actual_return",
+    "forecasted_return",
+]
+_DIRECTION_LABELS = ("up", "down", "flat")
+WALK_FORWARD_DIAGNOSTIC_COLUMNS = [
+    "timeframe",
+    "rows",
+    "random_seed",
+    "kronos_mean_signed_error",
+    "naive_mean_signed_error",
+    "sma_mean_signed_error",
+    "kronos_median_absolute_error",
+    "naive_median_absolute_error",
+    "sma_median_absolute_error",
+    "kronos_error_std",
+    "naive_error_std",
+    "sma_error_std",
+    "kronos_vs_naive_mae_delta",
+    "kronos_vs_naive_mae_ratio",
+    "kronos_vs_sma_mae_delta",
+    "kronos_vs_sma_mae_ratio",
+    "average_actual_return",
+    "average_forecasted_return",
+    "random_directional_accuracy",
+    *[
+        f"kronos_actual_{actual}_pred_{predicted}"
+        for actual in _DIRECTION_LABELS
+        for predicted in _DIRECTION_LABELS
+    ],
 ]
 DEFAULT_MAX_WALK_FORWARD_WINDOWS = 20
+DEFAULT_SMA_WINDOW = 20
+DEFAULT_RANDOM_BASELINE_SEED = 42
 
 
 class EvaluationError(ValueError):
@@ -145,6 +220,20 @@ class ForecastEvaluationRun:
 @dataclass(frozen=True)
 class WalkForwardEvaluationRun:
     manifest_path: Path
+    output_path: Path
+    rows: int
+
+
+@dataclass(frozen=True)
+class WalkForwardSummaryRun:
+    metrics_path: Path
+    output_path: Path
+    rows: int
+
+
+@dataclass(frozen=True)
+class WalkForwardDiagnosticRun:
+    metrics_path: Path
     output_path: Path
     rows: int
 
@@ -301,6 +390,7 @@ def evaluate_kronos_walk_forward(
     device: str = DEFAULT_DEVICE,
     lookback: int = DEFAULT_LOOKBACK,
     max_windows: int = DEFAULT_MAX_WALK_FORWARD_WINDOWS,
+    sma_window: int = DEFAULT_SMA_WINDOW,
     pred_len: int = DEFAULT_PRED_LEN,
     model_name: str = DEFAULT_KRONOS_MODEL,
     tokenizer_name: str = DEFAULT_KRONOS_TOKENIZER,
@@ -313,6 +403,10 @@ def evaluate_kronos_walk_forward(
         raise EvaluationError("lookback must be positive")
     if max_windows <= 0:
         raise EvaluationError("max_windows must be positive")
+    if sma_window <= 0:
+        raise EvaluationError("sma_window must be positive")
+    if lookback < sma_window:
+        raise EvaluationError("lookback must be at least sma_window")
 
     manifest_path = resolve_manifest_path(manifest, manifest_dir=manifest_dir)
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -343,6 +437,7 @@ def evaluate_kronos_walk_forward(
                     lookback=lookback,
                     pred_len=pred_len,
                     window_number=window_number,
+                    sma_window=sma_window,
                 )
             )
 
@@ -354,6 +449,85 @@ def evaluate_kronos_walk_forward(
     pd.DataFrame(rows, columns=WALK_FORWARD_EVALUATION_COLUMNS).to_csv(output_path, index=False)
     return WalkForwardEvaluationRun(
         manifest_path=manifest_path,
+        output_path=output_path,
+        rows=len(rows),
+    )
+
+
+def summarize_walk_forward_metrics(
+    *,
+    metrics: str | Path,
+    output_dir: Path,
+) -> WalkForwardSummaryRun:
+    metrics_path = Path(metrics)
+    if not metrics_path.exists():
+        raise EvaluationError(f"Walk-forward metrics file does not exist: {metrics_path}")
+
+    metric_rows = _normalize_walk_forward_metrics(pd.read_csv(metrics_path))
+    rows: list[dict[str, Any]] = []
+    for timeframe, group in metric_rows.groupby("timeframe", sort=True):
+        rows.append(
+            {
+                "timeframe": timeframe,
+                "rows": int(len(group)),
+                "kronos_mae": float(group["kronos_absolute_error"].mean()),
+                "kronos_rmse": float(np.sqrt(group["kronos_squared_error"].mean())),
+                "naive_mae": float(group["naive_absolute_error"].mean()),
+                "naive_rmse": float(np.sqrt(group["naive_squared_error"].mean())),
+                "sma_mae": float(group["sma_absolute_error"].mean()),
+                "sma_rmse": float(np.sqrt(group["sma_squared_error"].mean())),
+                "kronos_directional_accuracy": float(group["kronos_direction_hit"].mean()),
+                "naive_directional_accuracy": float(group["naive_direction_hit"].mean()),
+                "sma_directional_accuracy": float(group["sma_direction_hit"].mean()),
+                "average_actual_return": float(group["actual_return"].mean()),
+                "average_forecasted_return": float(group["forecasted_return"].mean()),
+            }
+        )
+
+    if not rows:
+        raise EvaluationError("Walk-forward metrics file contains no rows to summarize")
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = output_dir / _summary_filename(metrics_path)
+    pd.DataFrame(rows, columns=WALK_FORWARD_SUMMARY_COLUMNS).to_csv(output_path, index=False)
+    return WalkForwardSummaryRun(
+        metrics_path=metrics_path,
+        output_path=output_path,
+        rows=len(rows),
+    )
+
+
+def diagnose_walk_forward_metrics(
+    *,
+    metrics: str | Path,
+    output_dir: Path,
+    random_seed: int = DEFAULT_RANDOM_BASELINE_SEED,
+) -> WalkForwardDiagnosticRun:
+    metrics_path = Path(metrics)
+    if not metrics_path.exists():
+        raise EvaluationError(f"Walk-forward metrics file does not exist: {metrics_path}")
+
+    metric_rows = _normalize_walk_forward_diagnostics(pd.read_csv(metrics_path))
+    rows: list[dict[str, Any]] = []
+    rng = np.random.default_rng(random_seed)
+    for timeframe, group in metric_rows.groupby("timeframe", sort=True):
+        rows.append(
+            _diagnose_timeframe_group(
+                timeframe=timeframe,
+                group=group,
+                random_seed=random_seed,
+                rng=rng,
+            )
+        )
+
+    if not rows:
+        raise EvaluationError("Walk-forward metrics file contains no rows to diagnose")
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = output_dir / _diagnostic_filename(metrics_path)
+    pd.DataFrame(rows, columns=WALK_FORWARD_DIAGNOSTIC_COLUMNS).to_csv(output_path, index=False)
+    return WalkForwardDiagnosticRun(
+        metrics_path=metrics_path,
         output_path=output_path,
         rows=len(rows),
     )
@@ -418,6 +592,71 @@ def _normalize_forecast(forecast: pd.DataFrame) -> pd.DataFrame:
     if len(unsupported) > 0:
         raise EvaluationError("Forecast evaluation only supports pred_len=1")
 
+    return normalized
+
+
+def _normalize_walk_forward_metrics(metrics: pd.DataFrame) -> pd.DataFrame:
+    missing = [
+        column
+        for column in WALK_FORWARD_SUMMARY_REQUIRED_COLUMNS
+        if column not in metrics.columns
+    ]
+    if missing:
+        raise EvaluationError(
+            "Walk-forward metrics missing required column(s): " + ", ".join(missing)
+        )
+
+    normalized = metrics.copy()
+    numeric_columns = [
+        "kronos_absolute_error",
+        "kronos_squared_error",
+        "naive_absolute_error",
+        "naive_squared_error",
+        "sma_absolute_error",
+        "sma_squared_error",
+        "actual_return",
+        "forecasted_return",
+    ]
+    for column in numeric_columns:
+        normalized[column] = pd.to_numeric(normalized[column], errors="coerce")
+    if normalized[numeric_columns].isna().any().any():
+        raise EvaluationError("Walk-forward metrics contain invalid numeric values")
+
+    for column in ("kronos_direction_hit", "naive_direction_hit", "sma_direction_hit"):
+        normalized[column] = _coerce_boolean_series(normalized[column], column=column)
+
+    normalized["timeframe"] = normalized["timeframe"].astype(str)
+    return normalized
+
+
+def _normalize_walk_forward_diagnostics(metrics: pd.DataFrame) -> pd.DataFrame:
+    missing = [
+        column
+        for column in WALK_FORWARD_DIAGNOSTIC_REQUIRED_COLUMNS
+        if column not in metrics.columns
+    ]
+    if missing:
+        raise EvaluationError(
+            "Walk-forward diagnostics missing required column(s): " + ", ".join(missing)
+        )
+
+    normalized = metrics.copy()
+    numeric_columns = [
+        "kronos_close_error",
+        "kronos_absolute_error",
+        "naive_close_error",
+        "naive_absolute_error",
+        "sma_close_error",
+        "sma_absolute_error",
+        "actual_return",
+        "forecasted_return",
+    ]
+    for column in numeric_columns:
+        normalized[column] = pd.to_numeric(normalized[column], errors="coerce")
+    if normalized[numeric_columns].isna().any().any():
+        raise EvaluationError("Walk-forward diagnostics contain invalid numeric values")
+
+    normalized["timeframe"] = normalized["timeframe"].astype(str)
     return normalized
 
 
@@ -512,6 +751,7 @@ def _evaluate_walk_forward_window(
     lookback: int,
     pred_len: int,
     window_number: int,
+    sma_window: int,
 ) -> dict[str, Any]:
     input_window = window.input_window.copy()
     x_df = input_window[CLEAN_COLUMNS[1:]].copy()
@@ -549,6 +789,15 @@ def _evaluate_walk_forward_window(
         current_close=current_close,
         target_close=target_close,
         kronos_close=kronos_close,
+    )
+    sma_close = float(input_window["close"].tail(sma_window).mean())
+    metrics.update(
+        _sma_metric_values(
+            current_close=current_close,
+            actual_return=metrics["actual_return"],
+            target_close=target_close,
+            sma_close=sma_close,
+        )
     )
 
     return {
@@ -624,6 +873,25 @@ def _close_metric_values(
     }
 
 
+def _sma_metric_values(
+    *,
+    current_close: float,
+    actual_return: float,
+    target_close: float,
+    sma_close: float,
+) -> dict[str, Any]:
+    sma_error = sma_close - target_close
+    sma_return = _safe_return(sma_close, current_close)
+    return {
+        "sma_close": sma_close,
+        "sma_close_error": sma_error,
+        "sma_absolute_error": abs(sma_error),
+        "sma_squared_error": sma_error**2,
+        "sma_return": sma_return,
+        "sma_direction_hit": bool(np.sign(sma_return) == np.sign(actual_return)),
+    }
+
+
 def _normalize_timestamp(timestamp: pd.Timestamp | None) -> pd.Timestamp:
     if timestamp is None:
         return pd.Timestamp.now(tz="UTC")
@@ -639,3 +907,104 @@ def _format_timestamp(timestamp: pd.Timestamp) -> str:
 
 def _model_slug(model_name: str) -> str:
     return model_name.split("/")[-1].lower()
+
+
+def _coerce_boolean_series(series: pd.Series, *, column: str) -> pd.Series:
+    if series.dtype == bool:
+        return series
+
+    mapped = series.map(
+        {
+            True: True,
+            False: False,
+            "True": True,
+            "False": False,
+            "true": True,
+            "false": False,
+            "1": True,
+            "0": False,
+            1: True,
+            0: False,
+        }
+    )
+    if mapped.isna().any():
+        raise EvaluationError(f"Walk-forward metrics contain invalid boolean values in {column}")
+    return mapped.astype(bool)
+
+
+def _summary_filename(metrics_path: Path) -> str:
+    stem = metrics_path.stem
+    if stem.endswith("_walk_forward_metrics"):
+        stem = stem.removesuffix("_walk_forward_metrics") + "_walk_forward_summary"
+    else:
+        stem = stem + "_summary"
+    return f"{stem}.csv"
+
+
+def _diagnose_timeframe_group(
+    *,
+    timeframe: str,
+    group: pd.DataFrame,
+    random_seed: int,
+    rng: np.random.Generator,
+) -> dict[str, Any]:
+    kronos_mae = float(group["kronos_absolute_error"].mean())
+    naive_mae = float(group["naive_absolute_error"].mean())
+    sma_mae = float(group["sma_absolute_error"].mean())
+    actual_direction = _direction_labels(group["actual_return"])
+    predicted_direction = _direction_labels(group["forecasted_return"])
+    random_direction = rng.choice(np.array(_DIRECTION_LABELS), size=len(group))
+
+    row = {
+        "timeframe": timeframe,
+        "rows": int(len(group)),
+        "random_seed": random_seed,
+        "kronos_mean_signed_error": float(group["kronos_close_error"].mean()),
+        "naive_mean_signed_error": float(group["naive_close_error"].mean()),
+        "sma_mean_signed_error": float(group["sma_close_error"].mean()),
+        "kronos_median_absolute_error": float(group["kronos_absolute_error"].median()),
+        "naive_median_absolute_error": float(group["naive_absolute_error"].median()),
+        "sma_median_absolute_error": float(group["sma_absolute_error"].median()),
+        "kronos_error_std": float(group["kronos_close_error"].std(ddof=0)),
+        "naive_error_std": float(group["naive_close_error"].std(ddof=0)),
+        "sma_error_std": float(group["sma_close_error"].std(ddof=0)),
+        "kronos_vs_naive_mae_delta": kronos_mae - naive_mae,
+        "kronos_vs_naive_mae_ratio": _safe_ratio(kronos_mae, naive_mae),
+        "kronos_vs_sma_mae_delta": kronos_mae - sma_mae,
+        "kronos_vs_sma_mae_ratio": _safe_ratio(kronos_mae, sma_mae),
+        "average_actual_return": float(group["actual_return"].mean()),
+        "average_forecasted_return": float(group["forecasted_return"].mean()),
+        "random_directional_accuracy": float(np.mean(random_direction == actual_direction)),
+    }
+    row.update(_confusion_counts(actual_direction, predicted_direction))
+    return row
+
+
+def _direction_labels(values: pd.Series) -> np.ndarray:
+    numeric = pd.to_numeric(values, errors="coerce").to_numpy(dtype=float)
+    return np.where(numeric > 0, "up", np.where(numeric < 0, "down", "flat"))
+
+
+def _confusion_counts(actual: np.ndarray, predicted: np.ndarray) -> dict[str, int]:
+    return {
+        f"kronos_actual_{actual_label}_pred_{predicted_label}": int(
+            np.sum((actual == actual_label) & (predicted == predicted_label))
+        )
+        for actual_label in _DIRECTION_LABELS
+        for predicted_label in _DIRECTION_LABELS
+    }
+
+
+def _safe_ratio(numerator: float, denominator: float) -> float:
+    if denominator == 0:
+        return float("nan")
+    return float(numerator / denominator)
+
+
+def _diagnostic_filename(metrics_path: Path) -> str:
+    stem = metrics_path.stem
+    if stem.endswith("_walk_forward_metrics"):
+        stem = stem.removesuffix("_walk_forward_metrics") + "_walk_forward_diagnostics"
+    else:
+        stem = stem + "_diagnostics"
+    return f"{stem}.csv"

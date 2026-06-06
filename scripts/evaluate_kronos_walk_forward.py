@@ -11,6 +11,7 @@ if str(SRC) not in sys.path:
 
 from hourly_prediction.evaluation import (  # noqa: E402
     DEFAULT_MAX_WALK_FORWARD_WINDOWS,
+    DEFAULT_SMA_WINDOW,
     EvaluationError,
     evaluate_kronos_walk_forward,
 )
@@ -45,6 +46,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device", default=DEFAULT_DEVICE)
     parser.add_argument("--lookback", type=int, default=DEFAULT_LOOKBACK)
     parser.add_argument("--max-windows", type=int, default=DEFAULT_MAX_WALK_FORWARD_WINDOWS)
+    parser.add_argument("--sma-window", type=int, default=DEFAULT_SMA_WINDOW)
     parser.add_argument("--pred-len", type=int, default=DEFAULT_PRED_LEN)
     parser.add_argument("--model-name", default=DEFAULT_KRONOS_MODEL)
     parser.add_argument("--tokenizer-name", default=DEFAULT_KRONOS_TOKENIZER)
@@ -62,6 +64,7 @@ def main() -> int:
             device=args.device,
             lookback=args.lookback,
             max_windows=args.max_windows,
+            sma_window=args.sma_window,
             pred_len=args.pred_len,
             model_name=args.model_name,
             tokenizer_name=args.tokenizer_name,
