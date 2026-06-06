@@ -81,3 +81,38 @@ Kronos shows a positive signed close-error bias on both timeframes. It remains
 worse than naive close persistence on MAE, but better than the 20-candle SMA
 baseline on MAE. Directional behavior needs review separately from close-error
 metrics; this remains a diagnostics artifact and not a signal/backtest result.
+
+## 2026-06-06 Phase 4B/4C Main Recreated Run
+
+Input metrics:
+
+```text
+outputs/metrics/binance_BTCUSDT_20260606T205214Z_kronos-small_walk_forward_metrics.csv
+```
+
+Derived artifacts:
+
+```text
+outputs/metrics/binance_BTCUSDT_20260606T205214Z_kronos-small_walk_forward_summary.csv
+outputs/metrics/binance_BTCUSDT_20260606T205214Z_kronos-small_walk_forward_diagnostics.csv
+```
+
+Summary:
+
+| Timeframe | Rows | Kronos MAE | Naive MAE | SMA MAE | Kronos Directional Accuracy | Naive Directional Accuracy | SMA Directional Accuracy |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `15m` | 100 | 242.854920 | 157.150900 | 331.751630 | 0.48 | 0.00 | 0.59 |
+| `1h` | 100 | 638.611161 | 403.730900 | 951.203450 | 0.54 | 0.00 | 0.49 |
+
+Diagnostics:
+
+| Timeframe | Rows | Kronos Mean Signed Error | Naive Mean Signed Error | SMA Mean Signed Error | Kronos / Naive MAE Ratio | Kronos / SMA MAE Ratio | Random Direction Accuracy |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `15m` | 100 | -40.687661 | -9.822100 | -38.250200 | 1.545361 | 0.732038 | 0.27 |
+| `1h` | 100 | 136.536733 | 67.042700 | 916.610360 | 1.581774 | 0.671372 | 0.28 |
+
+The recreated main run confirms the same Phase 4 gate: Kronos-small is still
+worse than naive close persistence on close-error metrics for both timeframes,
+while beating the 20-candle SMA baseline on MAE. Phase 5 paper-signal work
+should remain blocked until this baseline result is reviewed or a model/config
+comparison improves the close-error profile.
