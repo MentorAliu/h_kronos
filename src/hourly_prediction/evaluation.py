@@ -9,7 +9,19 @@ import numpy as np
 import pandas as pd
 
 from hourly_prediction.config import CLEAN_COLUMNS
-from hourly_prediction.kronos_runner import resolve_manifest_path
+from hourly_prediction.kronos_runner import (
+    DEFAULT_DEVICE,
+    DEFAULT_LOOKBACK,
+    DEFAULT_PRED_LEN,
+    PredictorLoader,
+    load_kronos_predictor,
+    resolve_manifest_path,
+)
+from hourly_prediction.kronos_runtime import (
+    DEFAULT_KRONOS_MODEL,
+    DEFAULT_KRONOS_TOKENIZER,
+)
+from hourly_prediction.validation import timeframe_delta
 
 
 METRIC_COLUMNS = [
@@ -68,6 +80,36 @@ FORECAST_EVALUATION_COLUMNS = [
     "naive_return",
     "naive_direction_hit",
 ]
+WALK_FORWARD_EVALUATION_COLUMNS = [
+    "run_id",
+    "evaluation_created_at",
+    "exchange",
+    "symbol",
+    "timeframe",
+    "model_name",
+    "lookback",
+    "pred_len",
+    "window_number",
+    "input_start_timestamp",
+    "input_end_timestamp",
+    "forecast_timestamp",
+    "current_close",
+    "target_close",
+    "kronos_close",
+    "kronos_close_error",
+    "kronos_absolute_error",
+    "kronos_squared_error",
+    "actual_return",
+    "forecasted_return",
+    "kronos_direction_hit",
+    "naive_close",
+    "naive_close_error",
+    "naive_absolute_error",
+    "naive_squared_error",
+    "naive_return",
+    "naive_direction_hit",
+]
+DEFAULT_MAX_WALK_FORWARD_WINDOWS = 20
 
 
 class EvaluationError(ValueError):
@@ -95,6 +137,13 @@ class BaselineEvaluationRun:
 @dataclass(frozen=True)
 class ForecastEvaluationRun:
     forecast_path: Path
+    manifest_path: Path
+    output_path: Path
+    rows: int
+
+
+@dataclass(frozen=True)
+class WalkForwardEvaluationRun:
     manifest_path: Path
     output_path: Path
     rows: int
@@ -237,6 +286,73 @@ def evaluate_forecast_manifest(
     pd.DataFrame(rows, columns=FORECAST_EVALUATION_COLUMNS).to_csv(output_path, index=False)
     return ForecastEvaluationRun(
         forecast_path=forecast_path,
+        manifest_path=manifest_path,
+        output_path=output_path,
+        rows=len(rows),
+    )
+
+
+def evaluate_kronos_walk_forward(
+    *,
+    manifest: str | Path,
+    manifest_dir: Path,
+    output_dir: Path,
+    kronos_repo_path: Path,
+    device: str = DEFAULT_DEVICE,
+    lookback: int = DEFAULT_LOOKBACK,
+    max_windows: int = DEFAULT_MAX_WALK_FORWARD_WINDOWS,
+    pred_len: int = DEFAULT_PRED_LEN,
+    model_name: str = DEFAULT_KRONOS_MODEL,
+    tokenizer_name: str = DEFAULT_KRONOS_TOKENIZER,
+    now: pd.Timestamp | None = None,
+    predictor_loader: PredictorLoader = None,
+) -> WalkForwardEvaluationRun:
+    if pred_len != 1:
+        raise EvaluationError("Walk-forward evaluation only supports pred_len=1")
+    if lookback <= 0:
+        raise EvaluationError("lookback must be positive")
+    if max_windows <= 0:
+        raise EvaluationError("max_windows must be positive")
+
+    manifest_path = resolve_manifest_path(manifest, manifest_dir=manifest_dir)
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    clean_by_timeframe = _load_clean_by_timeframe(payload)
+    evaluation_created_at = _format_timestamp(_normalize_timestamp(now))
+    predictor = (predictor_loader or load_kronos_predictor)(
+        kronos_repo_path=kronos_repo_path,
+        model_name=model_name,
+        tokenizer_name=tokenizer_name,
+        device=device,
+        max_context=lookback,
+    )
+
+    rows: list[dict[str, Any]] = []
+    for dataset in payload.get("datasets", []):
+        timeframe = dataset["timeframe"]
+        clean = clean_by_timeframe[timeframe]
+        windows = build_evaluation_windows(clean, timeframe=timeframe, lookback=lookback)
+        selected = windows[-max_windows:]
+        for window_number, window in enumerate(selected, start=1):
+            rows.append(
+                _evaluate_walk_forward_window(
+                    window=window,
+                    manifest=payload,
+                    predictor=predictor,
+                    evaluation_created_at=evaluation_created_at,
+                    model_name=model_name,
+                    lookback=lookback,
+                    pred_len=pred_len,
+                    window_number=window_number,
+                )
+            )
+
+    if not rows:
+        raise EvaluationError("Walk-forward evaluation produced no rows")
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = output_dir / f"{payload['run_id']}_{_model_slug(model_name)}_walk_forward_metrics.csv"
+    pd.DataFrame(rows, columns=WALK_FORWARD_EVALUATION_COLUMNS).to_csv(output_path, index=False)
+    return WalkForwardEvaluationRun(
         manifest_path=manifest_path,
         output_path=output_path,
         rows=len(rows),
@@ -386,6 +502,72 @@ def _evaluate_forecast_row(
     }
 
 
+def _evaluate_walk_forward_window(
+    *,
+    window: EvaluationWindow,
+    manifest: dict[str, Any],
+    predictor: Any,
+    evaluation_created_at: str,
+    model_name: str,
+    lookback: int,
+    pred_len: int,
+    window_number: int,
+) -> dict[str, Any]:
+    input_window = window.input_window.copy()
+    x_df = input_window[CLEAN_COLUMNS[1:]].copy()
+    x_timestamp = input_window["timestamp"]
+    y_timestamp = pd.Series([pd.Timestamp(window.target_timestamp)])
+
+    target_timestamp = pd.Timestamp(y_timestamp.iloc[0])
+    input_end = pd.Timestamp(x_timestamp.iloc[-1])
+    expected_target = input_end + timeframe_delta(window.timeframe)
+    if input_end >= target_timestamp:
+        raise EvaluationError("Walk-forward input window includes or overlaps its target")
+    if target_timestamp != expected_target:
+        raise EvaluationError(
+            f"{window.timeframe} target timestamp does not follow input window end"
+        )
+
+    prediction = predictor.predict(
+        df=x_df,
+        x_timestamp=x_timestamp,
+        y_timestamp=y_timestamp,
+        pred_len=pred_len,
+        T=1.0,
+        top_p=0.9,
+        sample_count=1,
+        verbose=False,
+    )
+    if len(prediction) != 1:
+        raise EvaluationError("Kronos predictor must return exactly one row for pred_len=1")
+
+    prediction_row = prediction.iloc[0]
+    kronos_close = float(prediction_row["close"])
+    current_close = float(window.current_close)
+    target_close = float(window.target_close)
+    metrics = _close_metric_values(
+        current_close=current_close,
+        target_close=target_close,
+        kronos_close=kronos_close,
+    )
+
+    return {
+        "run_id": manifest["run_id"],
+        "evaluation_created_at": evaluation_created_at,
+        "exchange": manifest["exchange"],
+        "symbol": manifest["symbol"],
+        "timeframe": window.timeframe,
+        "model_name": model_name,
+        "lookback": lookback,
+        "pred_len": pred_len,
+        "window_number": window_number,
+        "input_start_timestamp": window.input_start_timestamp,
+        "input_end_timestamp": window.input_end_timestamp,
+        "forecast_timestamp": window.target_timestamp,
+        **metrics,
+    }
+
+
 def _lookup_candle(
     clean: pd.DataFrame,
     *,
@@ -411,10 +593,49 @@ def _safe_return(value: float, base: float) -> float:
     return float((value - base) / base)
 
 
-def _format_timestamp(timestamp: pd.Timestamp) -> str:
+def _close_metric_values(
+    *,
+    current_close: float,
+    target_close: float,
+    kronos_close: float,
+) -> dict[str, Any]:
+    kronos_error = kronos_close - target_close
+    naive_close = current_close
+    naive_error = naive_close - target_close
+    actual_return = _safe_return(target_close, current_close)
+    forecasted_return = _safe_return(kronos_close, current_close)
+    naive_return = 0.0
+    return {
+        "current_close": current_close,
+        "target_close": target_close,
+        "kronos_close": kronos_close,
+        "kronos_close_error": kronos_error,
+        "kronos_absolute_error": abs(kronos_error),
+        "kronos_squared_error": kronos_error**2,
+        "actual_return": actual_return,
+        "forecasted_return": forecasted_return,
+        "kronos_direction_hit": bool(np.sign(forecasted_return) == np.sign(actual_return)),
+        "naive_close": naive_close,
+        "naive_close_error": naive_error,
+        "naive_absolute_error": abs(naive_error),
+        "naive_squared_error": naive_error**2,
+        "naive_return": naive_return,
+        "naive_direction_hit": bool(np.sign(naive_return) == np.sign(actual_return)),
+    }
+
+
+def _normalize_timestamp(timestamp: pd.Timestamp | None) -> pd.Timestamp:
+    if timestamp is None:
+        return pd.Timestamp.now(tz="UTC")
     value = pd.Timestamp(timestamp)
     if value.tzinfo is None:
-        value = value.tz_localize("UTC")
-    else:
-        value = value.tz_convert("UTC")
-    return value.strftime("%Y-%m-%dT%H:%M:%SZ")
+        return value.tz_localize("UTC")
+    return value.tz_convert("UTC")
+
+
+def _format_timestamp(timestamp: pd.Timestamp) -> str:
+    return _normalize_timestamp(timestamp).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _model_slug(model_name: str) -> str:
+    return model_name.split("/")[-1].lower()
