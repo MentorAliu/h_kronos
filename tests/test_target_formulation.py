@@ -81,6 +81,7 @@ def test_analyze_target_formulation_reports_return_error_and_bias(tmp_path) -> N
     small = output.loc[output["model_name"] == "Fake/Kronos-small"].iloc[0]
     assert small["sample_count"] == 3
     assert small["window_selection"] == "even"
+    assert small["input_transform"] == "raw"
     assert small["kronos_return_mae"] == pytest.approx(
         (abs(0.010 - 0.020) + abs(-0.020 - -0.010) + abs(-0.002 - 0.0003)) / 3
     )
@@ -131,7 +132,9 @@ def test_analyze_target_formulation_keeps_configs_separate(tmp_path) -> None:
         "Fake/Kronos-base",
         "Fake/Kronos-small",
     ]
-    assert output.groupby(["model_name", "sample_count", "window_selection", "timeframe"]).ngroups == 2
+    assert output.groupby(
+        ["model_name", "sample_count", "window_selection", "input_transform", "timeframe"]
+    ).ngroups == 2
 
 
 def test_analyze_target_formulation_fails_on_missing_columns(tmp_path) -> None:

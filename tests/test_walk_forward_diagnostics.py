@@ -103,6 +103,7 @@ def test_diagnose_walk_forward_metrics_writes_bias_and_confusion(tmp_path) -> No
     assert one_hour["top_p"] == pytest.approx(0.9)
     assert one_hour["sample_count"] == 1
     assert one_hour["window_selection"] == "even"
+    assert one_hour["input_transform"] == "raw"
     assert one_hour["kronos_mean_signed_error"] == pytest.approx(2.0 / 3.0)
     assert one_hour["naive_mean_signed_error"] == pytest.approx(-1.0 / 3.0)
     assert one_hour["sma_mean_signed_error"] == pytest.approx(1.0 / 3.0)

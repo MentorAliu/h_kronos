@@ -321,3 +321,83 @@ coin-flip levels and does not provide enough evidence to unblock Phase 5. The
 next research slice should change the input or target formulation, for example
 evaluating return-space or normalized-price targets, before any signal or
 backtest work.
+
+## 2026-06-07 Phase 4J Leakage-Safe Forecast Calibration
+
+Input diagnostics:
+
+```text
+outputs/metrics/binancepublic_BTCUSDT_20260607T071726Z_phase4j_forecast_calibration.csv
+```
+
+Run shape:
+
+- Inputs: Phase 4H historical `even` metrics for `Kronos-small sample_count=3` and `Kronos-base sample_count=1`
+- Split: chronological `70%` train, `30%` test per model/config/timeframe
+- Calibration methods: uncalibrated Kronos return, train-only bias correction, train-only linear return calibration
+- Thresholded direction cutoffs: `0`, `5`, `10`, and `25` bps by absolute actual return
+- Rows: 4 aggregate rows, covering 2 configs x 2 timeframes
+
+Summary:
+
+| Model | Sample Count | Timeframe | Train Rows | Test Rows | Uncal Return MAE | Bias Return MAE | Linear Return MAE | Naive Return MAE | Uncal Close MAE | Bias Close MAE | Linear Close MAE | Naive Close MAE | Linear Beats Naive Close MAE |
+| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| `NeoQuasar/Kronos-base` | 1 | `15m` | 700 | 300 | 0.002325 | 0.002330 | 0.001711 | 0.001647 | 173.875528 | 174.319891 | 127.737027 | 122.727800 | no |
+| `NeoQuasar/Kronos-base` | 1 | `1h` | 700 | 300 | 0.004873 | 0.004867 | 0.003386 | 0.003392 | 363.867726 | 363.376804 | 252.860384 | 253.248533 | yes |
+| `NeoQuasar/Kronos-small` | 3 | `15m` | 700 | 300 | 0.001958 | 0.001965 | 0.001661 | 0.001647 | 145.687210 | 146.302132 | 123.770402 | 122.727800 | no |
+| `NeoQuasar/Kronos-small` | 3 | `1h` | 700 | 300 | 0.004214 | 0.004200 | 0.003392 | 0.003392 | 314.331031 | 313.397273 | 253.254440 | 253.248533 | no |
+
+The leakage-safe calibration check does not provide enough evidence to unblock
+Phase 5. Linear calibration produces one tiny out-of-sample edge on `Kronos-base`
+`1h`, beating naive close MAE by about `0.39` USD and return MAE by about
+`0.000006`, but the other three model/timeframe rows still lose to naive. Test
+set forecast-vs-actual return correlations are weak or negative across rows, so
+the next research slice should reformulate the model input or target directly
+rather than treat calibration as a trading-ready signal.
+
+## 2026-06-07 Phase 4K Input Normalization Experiment
+
+Input comparison:
+
+```text
+outputs/metrics/binancepublic_BTCUSDT_20260607T071726Z_phase4k_input_transform_model_comparison.csv
+```
+
+Related diagnostics:
+
+```text
+outputs/metrics/binancepublic_BTCUSDT_20260607T071726Z_phase4k_input_transform_regime_diagnostics.csv
+outputs/metrics/binancepublic_BTCUSDT_20260607T071726Z_phase4k_input_transform_target_formulation.csv
+outputs/metrics/binancepublic_BTCUSDT_20260607T071726Z_phase4k_input_transform_forecast_calibration.csv
+```
+
+Run shape:
+
+- Inputs: Binance public historical manifest from Phase 4H
+- Models: `Kronos-small sample_count=3` and `Kronos-base sample_count=1`
+- Input transforms: `raw` and `relative`
+- Windows: `500` evenly spaced targets per timeframe, `1000` rows per run
+- Timeframes: `1h`, `15m`
+
+Summary:
+
+| Model | Sample Count | Input Transform | Timeframe | Rows | Kronos MAE | Naive MAE | Kronos RMSE | Naive RMSE | Directional Accuracy | Beats Naive MAE |
+| --- | ---: | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| `NeoQuasar/Kronos-base` | 1 | `raw` | `15m` | 500 | 187.949908 | 137.776240 | 283.785438 | 221.836705 | 0.510 | no |
+| `NeoQuasar/Kronos-base` | 1 | `relative` | `15m` | 500 | 193.894492 | 137.776240 | 289.375097 | 221.836705 | 0.522 | no |
+| `NeoQuasar/Kronos-base` | 1 | `raw` | `1h` | 500 | 390.918133 | 279.443480 | 578.379409 | 423.381350 | 0.488 | no |
+| `NeoQuasar/Kronos-base` | 1 | `relative` | `1h` | 500 | 382.862431 | 279.443480 | 538.019441 | 423.381350 | 0.536 | no |
+| `NeoQuasar/Kronos-small` | 3 | `raw` | `15m` | 500 | 164.631058 | 137.776240 | 244.046875 | 221.836705 | 0.504 | no |
+| `NeoQuasar/Kronos-small` | 3 | `relative` | `15m` | 500 | 167.522711 | 137.776240 | 251.651290 | 221.836705 | 0.498 | no |
+| `NeoQuasar/Kronos-small` | 3 | `raw` | `1h` | 500 | 317.723873 | 279.443480 | 454.806388 | 423.381350 | 0.532 | no |
+| `NeoQuasar/Kronos-small` | 3 | `relative` | `1h` | 500 | 342.270729 | 279.443480 | 504.897857 | 423.381350 | 0.526 | no |
+
+Relative input normalization does not beat naive close persistence on direct
+walk-forward MAE/RMSE for any model/timeframe row. It improves `Kronos-base`
+`1h` versus raw input and raises its directional accuracy, but it worsens both
+`15m` rows and `Kronos-small 1h`. The calibration report again shows only a
+tiny, isolated linear-calibrated close-MAE edge for `Kronos-base 1h relative`
+on the held-out split; it does not beat naive on return MAE. Phase 5 remains
+blocked. The next research slice should focus on a different target definition
+or a more explicit return-space forecasting experiment rather than treating
+input normalization as sufficient.

@@ -90,6 +90,7 @@ WALK_FORWARD_EVALUATION_COLUMNS = [
     "top_p",
     "sample_count",
     "window_selection",
+    "input_transform",
     "lookback",
     "pred_len",
     "window_number",
@@ -123,6 +124,7 @@ WALK_FORWARD_SUMMARY_REQUIRED_COLUMNS = [
     "top_p",
     "sample_count",
     "window_selection",
+    "input_transform",
     "timeframe",
     "kronos_absolute_error",
     "kronos_squared_error",
@@ -141,6 +143,7 @@ WALK_FORWARD_SUMMARY_COLUMNS = [
     "top_p",
     "sample_count",
     "window_selection",
+    "input_transform",
     "timeframe",
     "rows",
     "kronos_mae",
@@ -160,6 +163,7 @@ WALK_FORWARD_DIAGNOSTIC_REQUIRED_COLUMNS = [
     "top_p",
     "sample_count",
     "window_selection",
+    "input_transform",
     "timeframe",
     "kronos_close_error",
     "kronos_absolute_error",
@@ -176,6 +180,7 @@ WALK_FORWARD_DIAGNOSTIC_COLUMNS = [
     "top_p",
     "sample_count",
     "window_selection",
+    "input_transform",
     "timeframe",
     "rows",
     "random_seed",
@@ -206,6 +211,7 @@ WALK_FORWARD_COMPARISON_KEY_COLUMNS = [
     "top_p",
     "sample_count",
     "window_selection",
+    "input_transform",
     "timeframe",
 ]
 WALK_FORWARD_COMPARISON_COLUMNS = [
@@ -319,6 +325,8 @@ DEFAULT_SMA_WINDOW = 20
 DEFAULT_RANDOM_BASELINE_SEED = 42
 DEFAULT_WINDOW_SELECTION = "recent"
 SUPPORTED_WINDOW_SELECTIONS = ("recent", "even")
+DEFAULT_INPUT_TRANSFORM = "raw"
+SUPPORTED_INPUT_TRANSFORMS = ("raw", "relative")
 DEFAULT_RETURN_REGIME_BUCKETS = 3
 DEFAULT_TARGET_FORMULATION_THRESHOLDS_BPS = (0, 5, 10, 25)
 TARGET_FORMULATION_COLUMNS = [
@@ -335,6 +343,77 @@ TARGET_FORMULATION_COLUMNS = [
         )
     ],
     "kronos_beats_naive_any_threshold_direction",
+]
+FORECAST_CALIBRATION_REQUIRED_COLUMNS = [
+    *WALK_FORWARD_COMPARISON_KEY_COLUMNS,
+    "forecast_timestamp",
+    "current_close",
+    "actual_return",
+    "forecasted_return",
+    "naive_return",
+    "sma_return",
+]
+FORECAST_CALIBRATION_BASE_COLUMNS = [
+    *WALK_FORWARD_COMPARISON_KEY_COLUMNS,
+    "train_fraction",
+    "train_rows",
+    "test_rows",
+    "train_start_timestamp",
+    "train_end_timestamp",
+    "test_start_timestamp",
+    "test_end_timestamp",
+    "bias_correction",
+    "linear_alpha",
+    "linear_beta",
+    "linear_degenerate",
+    "test_forecast_actual_return_correlation",
+    "uncalibrated_return_mae",
+    "uncalibrated_return_rmse",
+    "uncalibrated_close_mae",
+    "uncalibrated_close_rmse",
+    "bias_return_mae",
+    "bias_return_rmse",
+    "bias_close_mae",
+    "bias_close_rmse",
+    "linear_return_mae",
+    "linear_return_rmse",
+    "linear_close_mae",
+    "linear_close_rmse",
+    "naive_return_mae",
+    "naive_return_rmse",
+    "naive_close_mae",
+    "naive_close_rmse",
+    "sma_return_mae",
+    "sma_return_rmse",
+    "sma_close_mae",
+    "sma_close_rmse",
+    "uncalibrated_beats_naive_return_mae",
+    "uncalibrated_beats_naive_close_mae",
+    "bias_beats_naive_return_mae",
+    "bias_beats_naive_close_mae",
+    "linear_beats_naive_return_mae",
+    "linear_beats_naive_close_mae",
+]
+FORECAST_CALIBRATION_COLUMNS = [
+    *FORECAST_CALIBRATION_BASE_COLUMNS,
+    *[
+        column
+        for threshold in DEFAULT_TARGET_FORMULATION_THRESHOLDS_BPS
+        for column in (
+            f"threshold_{threshold}_bps_rows",
+            f"threshold_{threshold}_bps_uncalibrated_directional_accuracy",
+            f"threshold_{threshold}_bps_bias_directional_accuracy",
+            f"threshold_{threshold}_bps_linear_directional_accuracy",
+            f"threshold_{threshold}_bps_naive_directional_accuracy",
+            f"threshold_{threshold}_bps_sma_directional_accuracy",
+            f"uncalibrated_beats_naive_threshold_{threshold}_bps_direction",
+            f"bias_beats_naive_threshold_{threshold}_bps_direction",
+            f"linear_beats_naive_threshold_{threshold}_bps_direction",
+        )
+    ],
+    "uncalibrated_beats_naive_any_threshold_direction",
+    "bias_beats_naive_any_threshold_direction",
+    "linear_beats_naive_any_threshold_direction",
 ]
 
 
@@ -406,6 +485,13 @@ class WalkForwardRegimeRun:
 
 @dataclass(frozen=True)
 class TargetFormulationRun:
+    metrics_paths: tuple[Path, ...]
+    output_path: Path
+    rows: int
+
+
+@dataclass(frozen=True)
+class ForecastCalibrationRun:
     metrics_paths: tuple[Path, ...]
     output_path: Path
     rows: int
@@ -570,6 +656,7 @@ def evaluate_kronos_walk_forward(
     top_p: float = 0.9,
     sample_count: int = 1,
     window_selection: str = DEFAULT_WINDOW_SELECTION,
+    input_transform: str = DEFAULT_INPUT_TRANSFORM,
     now: pd.Timestamp | None = None,
     predictor_loader: PredictorLoader = None,
 ) -> WalkForwardEvaluationRun:
@@ -588,6 +675,10 @@ def evaluate_kronos_walk_forward(
     if window_selection not in SUPPORTED_WINDOW_SELECTIONS:
         raise EvaluationError(
             "window_selection must be one of: " + ", ".join(SUPPORTED_WINDOW_SELECTIONS)
+        )
+    if input_transform not in SUPPORTED_INPUT_TRANSFORMS:
+        raise EvaluationError(
+            "input_transform must be one of: " + ", ".join(SUPPORTED_INPUT_TRANSFORMS)
         )
     if lookback < sma_window:
         raise EvaluationError("lookback must be at least sma_window")
@@ -625,6 +716,7 @@ def evaluate_kronos_walk_forward(
                     top_p=top_p,
                     sample_count=sample_count,
                     window_selection=window_selection,
+                    input_transform=input_transform,
                     lookback=lookback,
                     pred_len=pred_len,
                     window_number=window_number,
@@ -639,7 +731,7 @@ def evaluate_kronos_walk_forward(
     output_path = output_dir / (
         f"{payload['run_id']}_{_model_slug(model_name)}_"
         f"{_sampling_slug(top_p=top_p, sample_count=sample_count)}_"
-        f"{window_selection}_walk_forward_metrics.csv"
+        f"{window_selection}_{input_transform}_walk_forward_metrics.csv"
     )
     pd.DataFrame(rows, columns=WALK_FORWARD_EVALUATION_COLUMNS).to_csv(output_path, index=False)
     return WalkForwardEvaluationRun(
@@ -660,7 +752,14 @@ def summarize_walk_forward_metrics(
 
     metric_rows = _normalize_walk_forward_metrics(pd.read_csv(metrics_path))
     rows: list[dict[str, Any]] = []
-    for (model_name, top_p, sample_count, window_selection, timeframe), group in metric_rows.groupby(
+    for (
+        model_name,
+        top_p,
+        sample_count,
+        window_selection,
+        input_transform,
+        timeframe,
+    ), group in metric_rows.groupby(
         WALK_FORWARD_COMPARISON_KEY_COLUMNS,
         sort=True,
     ):
@@ -670,6 +769,7 @@ def summarize_walk_forward_metrics(
                 "top_p": float(top_p),
                 "sample_count": int(sample_count),
                 "window_selection": window_selection,
+                "input_transform": input_transform,
                 "timeframe": timeframe,
                 "rows": int(len(group)),
                 "kronos_mae": float(group["kronos_absolute_error"].mean()),
@@ -712,7 +812,14 @@ def diagnose_walk_forward_metrics(
     metric_rows = _normalize_walk_forward_diagnostics(pd.read_csv(metrics_path))
     rows: list[dict[str, Any]] = []
     rng = np.random.default_rng(random_seed)
-    for (model_name, top_p, sample_count, window_selection, timeframe), group in metric_rows.groupby(
+    for (
+        model_name,
+        top_p,
+        sample_count,
+        window_selection,
+        input_transform,
+        timeframe,
+    ), group in metric_rows.groupby(
         WALK_FORWARD_COMPARISON_KEY_COLUMNS,
         sort=True,
     ):
@@ -722,6 +829,7 @@ def diagnose_walk_forward_metrics(
                 top_p=float(top_p),
                 sample_count=int(sample_count),
                 window_selection=window_selection,
+                input_transform=input_transform,
                 timeframe=timeframe,
                 group=group,
                 random_seed=random_seed,
@@ -819,6 +927,7 @@ def analyze_walk_forward_regimes(
         top_p,
         sample_count,
         window_selection,
+        input_transform,
         timeframe,
         return_regime,
     ), group in metric_rows.groupby(
@@ -833,6 +942,7 @@ def analyze_walk_forward_regimes(
                 "top_p": float(top_p),
                 "sample_count": int(sample_count),
                 "window_selection": window_selection,
+                "input_transform": input_transform,
                 "timeframe": timeframe,
                 "return_regime": return_regime,
                 "rows": int(len(group)),
@@ -897,7 +1007,14 @@ def analyze_target_formulation(
         pd.concat((pd.read_csv(path) for path in metrics_paths), ignore_index=True)
     )
     rows: list[dict[str, Any]] = []
-    for (model_name, top_p, sample_count, window_selection, timeframe), group in metric_rows.groupby(
+    for (
+        model_name,
+        top_p,
+        sample_count,
+        window_selection,
+        input_transform,
+        timeframe,
+    ), group in metric_rows.groupby(
         WALK_FORWARD_COMPARISON_KEY_COLUMNS,
         sort=True,
     ):
@@ -907,6 +1024,7 @@ def analyze_target_formulation(
                 top_p=float(top_p),
                 sample_count=int(sample_count),
                 window_selection=window_selection,
+                input_transform=input_transform,
                 timeframe=timeframe,
                 group=group,
                 thresholds_bps=thresholds,
@@ -921,6 +1039,74 @@ def analyze_target_formulation(
     output_path = output_dir / output_name
     pd.DataFrame(rows, columns=columns).to_csv(output_path, index=False)
     return TargetFormulationRun(
+        metrics_paths=metrics_paths,
+        output_path=output_path,
+        rows=len(rows),
+    )
+
+
+def analyze_forecast_calibration(
+    *,
+    metrics: list[str | Path],
+    output_dir: Path,
+    train_fraction: float = 0.7,
+    thresholds_bps: list[int] | tuple[int, ...] = DEFAULT_TARGET_FORMULATION_THRESHOLDS_BPS,
+    output_name: str = "walk_forward_forecast_calibration.csv",
+) -> ForecastCalibrationRun:
+    if not metrics:
+        raise EvaluationError("At least one walk-forward metrics file is required")
+    if train_fraction <= 0 or train_fraction >= 1:
+        raise EvaluationError("train_fraction must be greater than 0 and less than 1")
+    thresholds = tuple(int(threshold) for threshold in thresholds_bps)
+    if not thresholds:
+        raise EvaluationError("At least one forecast calibration threshold is required")
+    if any(threshold < 0 for threshold in thresholds):
+        raise EvaluationError("Forecast calibration thresholds must be non-negative")
+    if len(set(thresholds)) != len(thresholds):
+        raise EvaluationError("Forecast calibration thresholds must be unique")
+
+    metrics_paths = tuple(Path(path) for path in metrics)
+    for path in metrics_paths:
+        if not path.exists():
+            raise EvaluationError(f"Walk-forward metrics file does not exist: {path}")
+
+    metric_rows = _normalize_forecast_calibration_metrics(
+        pd.concat((pd.read_csv(path) for path in metrics_paths), ignore_index=True)
+    )
+    rows: list[dict[str, Any]] = []
+    for (
+        model_name,
+        top_p,
+        sample_count,
+        window_selection,
+        input_transform,
+        timeframe,
+    ), group in metric_rows.groupby(
+        WALK_FORWARD_COMPARISON_KEY_COLUMNS,
+        sort=True,
+    ):
+        rows.append(
+            _analyze_forecast_calibration_group(
+                model_name=model_name,
+                top_p=float(top_p),
+                sample_count=int(sample_count),
+                window_selection=window_selection,
+                input_transform=input_transform,
+                timeframe=timeframe,
+                group=group,
+                train_fraction=train_fraction,
+                thresholds_bps=thresholds,
+            )
+        )
+
+    if not rows:
+        raise EvaluationError("Forecast calibration analysis produced no rows")
+
+    columns = _forecast_calibration_columns(thresholds)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = output_dir / output_name
+    pd.DataFrame(rows, columns=columns).to_csv(output_path, index=False)
+    return ForecastCalibrationRun(
         metrics_paths=metrics_paths,
         output_path=output_path,
         rows=len(rows),
@@ -990,6 +1176,7 @@ def _normalize_forecast(forecast: pd.DataFrame) -> pd.DataFrame:
 
 
 def _normalize_walk_forward_metrics(metrics: pd.DataFrame) -> pd.DataFrame:
+    metrics = _with_default_input_transform(metrics)
     missing = [
         column
         for column in WALK_FORWARD_SUMMARY_REQUIRED_COLUMNS
@@ -1027,12 +1214,14 @@ def _normalize_walk_forward_metrics(metrics: pd.DataFrame) -> pd.DataFrame:
 
     normalized["model_name"] = normalized["model_name"].astype(str)
     normalized["window_selection"] = normalized["window_selection"].astype(str)
+    normalized["input_transform"] = normalized["input_transform"].astype(str)
     normalized["timeframe"] = normalized["timeframe"].astype(str)
     normalized["sample_count"] = normalized["sample_count"].astype(int)
     return normalized
 
 
 def _normalize_walk_forward_diagnostics(metrics: pd.DataFrame) -> pd.DataFrame:
+    metrics = _with_default_input_transform(metrics)
     missing = [
         column
         for column in WALK_FORWARD_DIAGNOSTIC_REQUIRED_COLUMNS
@@ -1067,12 +1256,14 @@ def _normalize_walk_forward_diagnostics(metrics: pd.DataFrame) -> pd.DataFrame:
 
     normalized["model_name"] = normalized["model_name"].astype(str)
     normalized["window_selection"] = normalized["window_selection"].astype(str)
+    normalized["input_transform"] = normalized["input_transform"].astype(str)
     normalized["timeframe"] = normalized["timeframe"].astype(str)
     normalized["sample_count"] = normalized["sample_count"].astype(int)
     return normalized
 
 
 def _normalize_walk_forward_summary_reports(reports: pd.DataFrame) -> pd.DataFrame:
+    reports = _with_default_input_transform(reports)
     missing = [
         column
         for column in WALK_FORWARD_SUMMARY_COLUMNS
@@ -1087,7 +1278,7 @@ def _normalize_walk_forward_summary_reports(reports: pd.DataFrame) -> pd.DataFra
     numeric_columns = [
         column
         for column in WALK_FORWARD_SUMMARY_COLUMNS
-        if column not in ("model_name", "window_selection", "timeframe")
+        if column not in ("model_name", "window_selection", "input_transform", "timeframe")
     ]
     for column in numeric_columns:
         normalized[column] = pd.to_numeric(normalized[column], errors="coerce")
@@ -1096,6 +1287,7 @@ def _normalize_walk_forward_summary_reports(reports: pd.DataFrame) -> pd.DataFra
 
     normalized["model_name"] = normalized["model_name"].astype(str)
     normalized["window_selection"] = normalized["window_selection"].astype(str)
+    normalized["input_transform"] = normalized["input_transform"].astype(str)
     normalized["timeframe"] = normalized["timeframe"].astype(str)
     normalized["sample_count"] = normalized["sample_count"].astype(int)
     normalized["rows"] = normalized["rows"].astype(int)
@@ -1103,6 +1295,7 @@ def _normalize_walk_forward_summary_reports(reports: pd.DataFrame) -> pd.DataFra
 
 
 def _normalize_walk_forward_diagnostic_reports(reports: pd.DataFrame) -> pd.DataFrame:
+    reports = _with_default_input_transform(reports)
     required = [
         *WALK_FORWARD_COMPARISON_KEY_COLUMNS,
         "random_directional_accuracy",
@@ -1124,7 +1317,7 @@ def _normalize_walk_forward_diagnostic_reports(reports: pd.DataFrame) -> pd.Data
     numeric_columns = [
         column
         for column in required
-        if column not in ("model_name", "window_selection", "timeframe")
+        if column not in ("model_name", "window_selection", "input_transform", "timeframe")
     ]
     for column in numeric_columns:
         normalized[column] = pd.to_numeric(normalized[column], errors="coerce")
@@ -1133,12 +1326,14 @@ def _normalize_walk_forward_diagnostic_reports(reports: pd.DataFrame) -> pd.Data
 
     normalized["model_name"] = normalized["model_name"].astype(str)
     normalized["window_selection"] = normalized["window_selection"].astype(str)
+    normalized["input_transform"] = normalized["input_transform"].astype(str)
     normalized["timeframe"] = normalized["timeframe"].astype(str)
     normalized["sample_count"] = normalized["sample_count"].astype(int)
     return normalized
 
 
 def _normalize_walk_forward_regime_metrics(metrics: pd.DataFrame) -> pd.DataFrame:
+    metrics = _with_default_input_transform(metrics)
     missing = [
         column
         for column in WALK_FORWARD_REGIME_REQUIRED_COLUMNS
@@ -1184,6 +1379,7 @@ def _normalize_walk_forward_regime_metrics(metrics: pd.DataFrame) -> pd.DataFram
 
     normalized["model_name"] = normalized["model_name"].astype(str)
     normalized["window_selection"] = normalized["window_selection"].astype(str)
+    normalized["input_transform"] = normalized["input_transform"].astype(str)
     normalized["timeframe"] = normalized["timeframe"].astype(str)
     normalized["sample_count"] = normalized["sample_count"].astype(int)
     normalized["absolute_actual_return"] = normalized["actual_return"].abs()
@@ -1191,6 +1387,7 @@ def _normalize_walk_forward_regime_metrics(metrics: pd.DataFrame) -> pd.DataFram
 
 
 def _normalize_target_formulation_metrics(metrics: pd.DataFrame) -> pd.DataFrame:
+    metrics = _with_default_input_transform(metrics)
     missing = [
         column
         for column in TARGET_FORMULATION_REQUIRED_COLUMNS
@@ -1230,8 +1427,66 @@ def _normalize_target_formulation_metrics(metrics: pd.DataFrame) -> pd.DataFrame
 
     normalized["model_name"] = normalized["model_name"].astype(str)
     normalized["window_selection"] = normalized["window_selection"].astype(str)
+    normalized["input_transform"] = normalized["input_transform"].astype(str)
     normalized["timeframe"] = normalized["timeframe"].astype(str)
     normalized["sample_count"] = normalized["sample_count"].astype(int)
+    return normalized
+
+
+def _normalize_forecast_calibration_metrics(metrics: pd.DataFrame) -> pd.DataFrame:
+    metrics = _with_default_input_transform(metrics)
+    missing = [
+        column
+        for column in FORECAST_CALIBRATION_REQUIRED_COLUMNS
+        if column not in metrics.columns
+    ]
+    if missing:
+        raise EvaluationError(
+            "Forecast calibration metrics missing required column(s): " + ", ".join(missing)
+        )
+
+    normalized = metrics[FORECAST_CALIBRATION_REQUIRED_COLUMNS].copy()
+    numeric_columns = [
+        "top_p",
+        "sample_count",
+        "current_close",
+        "actual_return",
+        "forecasted_return",
+        "naive_return",
+        "sma_return",
+    ]
+    for column in numeric_columns:
+        normalized[column] = pd.to_numeric(normalized[column], errors="coerce")
+    if normalized[numeric_columns].isna().any().any():
+        raise EvaluationError("Forecast calibration metrics contain invalid numeric values")
+    if (normalized["top_p"] <= 0).any() or (normalized["top_p"] > 1).any():
+        raise EvaluationError("Forecast calibration metrics contain invalid top_p values")
+    if (normalized["sample_count"] <= 0).any():
+        raise EvaluationError("Forecast calibration metrics contain invalid sample_count values")
+    if (normalized["current_close"] <= 0).any():
+        raise EvaluationError("Forecast calibration metrics contain invalid current_close values")
+
+    normalized["forecast_timestamp"] = pd.to_datetime(
+        normalized["forecast_timestamp"],
+        utc=True,
+        errors="coerce",
+    )
+    if normalized["forecast_timestamp"].isna().any():
+        raise EvaluationError("Forecast calibration metrics contain invalid forecast timestamps")
+
+    normalized["model_name"] = normalized["model_name"].astype(str)
+    normalized["window_selection"] = normalized["window_selection"].astype(str)
+    normalized["input_transform"] = normalized["input_transform"].astype(str)
+    normalized["timeframe"] = normalized["timeframe"].astype(str)
+    normalized["sample_count"] = normalized["sample_count"].astype(int)
+    return normalized
+
+
+def _with_default_input_transform(rows: pd.DataFrame) -> pd.DataFrame:
+    if "input_transform" in rows.columns:
+        return rows
+    normalized = rows.copy()
+    normalized["input_transform"] = DEFAULT_INPUT_TRANSFORM
     return normalized
 
 
@@ -1383,13 +1638,17 @@ def _evaluate_walk_forward_window(
     top_p: float,
     sample_count: int,
     window_selection: str,
+    input_transform: str,
     lookback: int,
     pred_len: int,
     window_number: int,
     sma_window: int,
 ) -> dict[str, Any]:
     input_window = window.input_window.copy()
-    x_df = input_window[CLEAN_COLUMNS[1:]].copy()
+    x_df, rescale_refs = _transform_walk_forward_input(
+        input_window,
+        input_transform=input_transform,
+    )
     x_timestamp = input_window["timestamp"]
     y_timestamp = pd.Series([pd.Timestamp(window.target_timestamp)])
 
@@ -1416,7 +1675,11 @@ def _evaluate_walk_forward_window(
     if len(prediction) != 1:
         raise EvaluationError("Kronos predictor must return exactly one row for pred_len=1")
 
-    prediction_row = prediction.iloc[0]
+    prediction_row = _rescale_prediction_row(
+        prediction.iloc[0],
+        input_transform=input_transform,
+        refs=rescale_refs,
+    )
     kronos_close = float(prediction_row["close"])
     current_close = float(window.current_close)
     target_close = float(window.target_close)
@@ -1445,6 +1708,7 @@ def _evaluate_walk_forward_window(
         "top_p": top_p,
         "sample_count": sample_count,
         "window_selection": window_selection,
+        "input_transform": input_transform,
         "lookback": lookback,
         "pred_len": pred_len,
         "window_number": window_number,
@@ -1453,6 +1717,64 @@ def _evaluate_walk_forward_window(
         "forecast_timestamp": window.target_timestamp,
         **metrics,
     }
+
+
+def _transform_walk_forward_input(
+    input_window: pd.DataFrame,
+    *,
+    input_transform: str,
+) -> tuple[pd.DataFrame, dict[str, float]]:
+    x_df = input_window[CLEAN_COLUMNS[1:]].copy()
+    if input_transform == "raw":
+        return x_df, {}
+
+    if input_transform != "relative":
+        raise EvaluationError(
+            "input_transform must be one of: " + ", ".join(SUPPORTED_INPUT_TRANSFORMS)
+        )
+
+    reference_close = float(input_window["close"].iloc[-1])
+    reference_volume = float(input_window["volume"].median())
+    reference_amount = float(input_window["amount"].median())
+    if reference_close == 0:
+        raise EvaluationError("Relative input transform requires non-zero reference close")
+    if reference_volume == 0:
+        raise EvaluationError("Relative input transform requires non-zero median volume")
+    if reference_amount == 0:
+        raise EvaluationError("Relative input transform requires non-zero median amount")
+
+    transformed = x_df.copy()
+    for column in ("open", "high", "low", "close"):
+        transformed[column] = transformed[column] / reference_close
+    transformed["volume"] = transformed["volume"] / reference_volume
+    transformed["amount"] = transformed["amount"] / reference_amount
+    return transformed, {
+        "close": reference_close,
+        "volume": reference_volume,
+        "amount": reference_amount,
+    }
+
+
+def _rescale_prediction_row(
+    prediction_row: pd.Series,
+    *,
+    input_transform: str,
+    refs: dict[str, float],
+) -> pd.Series:
+    if input_transform == "raw":
+        return prediction_row
+
+    if input_transform != "relative":
+        raise EvaluationError(
+            "input_transform must be one of: " + ", ".join(SUPPORTED_INPUT_TRANSFORMS)
+        )
+
+    rescaled = prediction_row.copy()
+    for column in ("open", "high", "low", "close"):
+        rescaled[column] = float(rescaled[column]) * refs["close"]
+    rescaled["volume"] = float(rescaled["volume"]) * refs["volume"]
+    rescaled["amount"] = float(rescaled["amount"]) * refs["amount"]
+    return rescaled
 
 
 def _lookup_candle(
@@ -1590,6 +1912,7 @@ def _diagnose_timeframe_group(
     top_p: float,
     sample_count: int,
     window_selection: str,
+    input_transform: str,
     timeframe: str,
     group: pd.DataFrame,
     random_seed: int,
@@ -1607,6 +1930,7 @@ def _diagnose_timeframe_group(
         "top_p": top_p,
         "sample_count": sample_count,
         "window_selection": window_selection,
+        "input_transform": input_transform,
         "timeframe": timeframe,
         "rows": int(len(group)),
         "random_seed": random_seed,
@@ -1686,6 +2010,7 @@ def _analyze_target_formulation_group(
     top_p: float,
     sample_count: int,
     window_selection: str,
+    input_transform: str,
     timeframe: str,
     group: pd.DataFrame,
     thresholds_bps: tuple[int, ...],
@@ -1704,6 +2029,7 @@ def _analyze_target_formulation_group(
         "top_p": top_p,
         "sample_count": sample_count,
         "window_selection": window_selection,
+        "input_transform": input_transform,
         "timeframe": timeframe,
         "rows": int(len(group)),
         "kronos_close_mae": kronos_close_mae,
@@ -1784,6 +2110,187 @@ def _threshold_direction_metrics(group: pd.DataFrame, *, threshold_bps: int) -> 
 def _directional_accuracy(actual_direction: np.ndarray, predicted_returns: pd.Series) -> float:
     predicted_direction = np.sign(pd.to_numeric(predicted_returns, errors="coerce").to_numpy(dtype=float))
     return float(np.mean(predicted_direction == actual_direction))
+
+
+def _forecast_calibration_columns(thresholds_bps: tuple[int, ...]) -> list[str]:
+    return [
+        *FORECAST_CALIBRATION_BASE_COLUMNS,
+        *[
+            column
+            for threshold in thresholds_bps
+            for column in (
+                f"threshold_{threshold}_bps_rows",
+                f"threshold_{threshold}_bps_uncalibrated_directional_accuracy",
+                f"threshold_{threshold}_bps_bias_directional_accuracy",
+                f"threshold_{threshold}_bps_linear_directional_accuracy",
+                f"threshold_{threshold}_bps_naive_directional_accuracy",
+                f"threshold_{threshold}_bps_sma_directional_accuracy",
+                f"uncalibrated_beats_naive_threshold_{threshold}_bps_direction",
+                f"bias_beats_naive_threshold_{threshold}_bps_direction",
+                f"linear_beats_naive_threshold_{threshold}_bps_direction",
+            )
+        ],
+        "uncalibrated_beats_naive_any_threshold_direction",
+        "bias_beats_naive_any_threshold_direction",
+        "linear_beats_naive_any_threshold_direction",
+    ]
+
+
+def _analyze_forecast_calibration_group(
+    *,
+    model_name: str,
+    top_p: float,
+    sample_count: int,
+    window_selection: str,
+    input_transform: str,
+    timeframe: str,
+    group: pd.DataFrame,
+    train_fraction: float,
+    thresholds_bps: tuple[int, ...],
+) -> dict[str, Any]:
+    ordered = group.sort_values("forecast_timestamp", kind="mergesort").reset_index(drop=True)
+    split_index = int(np.floor(len(ordered) * train_fraction))
+    train = ordered.iloc[:split_index].copy()
+    test = ordered.iloc[split_index:].copy()
+    if len(train) < 2 or len(test) < 2:
+        raise EvaluationError(
+            f"Forecast calibration requires at least 2 train and 2 test rows for {model_name} {timeframe}"
+        )
+
+    bias_correction = float((train["actual_return"] - train["forecasted_return"]).mean())
+    linear_alpha, linear_beta, linear_degenerate = _fit_linear_return_calibration(train)
+
+    predictions = {
+        "uncalibrated": test["forecasted_return"],
+        "bias": test["forecasted_return"] + bias_correction,
+        "linear": linear_alpha + linear_beta * test["forecasted_return"],
+        "naive": test["naive_return"],
+        "sma": test["sma_return"],
+    }
+    method_metrics = {
+        method: _score_return_prediction(
+            predicted_return=predicted_return,
+            actual_return=test["actual_return"],
+            current_close=test["current_close"],
+        )
+        for method, predicted_return in predictions.items()
+    }
+
+    row: dict[str, Any] = {
+        "model_name": model_name,
+        "top_p": top_p,
+        "sample_count": sample_count,
+        "window_selection": window_selection,
+        "input_transform": input_transform,
+        "timeframe": timeframe,
+        "train_fraction": train_fraction,
+        "train_rows": int(len(train)),
+        "test_rows": int(len(test)),
+        "train_start_timestamp": _format_timestamp(train["forecast_timestamp"].iloc[0]),
+        "train_end_timestamp": _format_timestamp(train["forecast_timestamp"].iloc[-1]),
+        "test_start_timestamp": _format_timestamp(test["forecast_timestamp"].iloc[0]),
+        "test_end_timestamp": _format_timestamp(test["forecast_timestamp"].iloc[-1]),
+        "bias_correction": bias_correction,
+        "linear_alpha": linear_alpha,
+        "linear_beta": linear_beta,
+        "linear_degenerate": linear_degenerate,
+        "test_forecast_actual_return_correlation": _safe_correlation(
+            test["forecasted_return"],
+            test["actual_return"],
+        ),
+    }
+    for method, metrics in method_metrics.items():
+        row.update(
+            {
+                f"{method}_return_mae": metrics["return_mae"],
+                f"{method}_return_rmse": metrics["return_rmse"],
+                f"{method}_close_mae": metrics["close_mae"],
+                f"{method}_close_rmse": metrics["close_rmse"],
+            }
+        )
+
+    for method in ("uncalibrated", "bias", "linear"):
+        row[f"{method}_beats_naive_return_mae"] = (
+            row[f"{method}_return_mae"] < row["naive_return_mae"]
+        )
+        row[f"{method}_beats_naive_close_mae"] = row[f"{method}_close_mae"] < row["naive_close_mae"]
+
+    threshold_beats = {"uncalibrated": [], "bias": [], "linear": []}
+    for threshold in thresholds_bps:
+        threshold_result = _calibration_threshold_direction_metrics(
+            test,
+            predictions=predictions,
+            threshold_bps=threshold,
+        )
+        row.update(threshold_result)
+        for method in threshold_beats:
+            threshold_beats[method].append(
+                bool(threshold_result[f"{method}_beats_naive_threshold_{threshold}_bps_direction"])
+            )
+    for method, beats in threshold_beats.items():
+        row[f"{method}_beats_naive_any_threshold_direction"] = any(beats)
+    return row
+
+
+def _fit_linear_return_calibration(train: pd.DataFrame) -> tuple[float, float, bool]:
+    forecast = train["forecasted_return"].to_numpy(dtype=float)
+    actual = train["actual_return"].to_numpy(dtype=float)
+    forecast_mean = float(forecast.mean())
+    actual_mean = float(actual.mean())
+    centered_forecast = forecast - forecast_mean
+    denominator = float(np.sum(centered_forecast**2))
+    if denominator == 0:
+        return actual_mean, 0.0, True
+    beta = float(np.sum(centered_forecast * (actual - actual_mean)) / denominator)
+    alpha = float(actual_mean - beta * forecast_mean)
+    return alpha, beta, False
+
+
+def _score_return_prediction(
+    *,
+    predicted_return: pd.Series,
+    actual_return: pd.Series,
+    current_close: pd.Series,
+) -> dict[str, float]:
+    return_error = predicted_return - actual_return
+    close_error = return_error * current_close
+    return {
+        "return_mae": float(return_error.abs().mean()),
+        "return_rmse": _rmse(return_error),
+        "close_mae": float(close_error.abs().mean()),
+        "close_rmse": _rmse(close_error),
+    }
+
+
+def _calibration_threshold_direction_metrics(
+    test: pd.DataFrame,
+    *,
+    predictions: dict[str, pd.Series],
+    threshold_bps: int,
+) -> dict[str, Any]:
+    threshold_return = threshold_bps / 10_000
+    threshold_rows = test.loc[test["actual_return"].abs() >= threshold_return]
+    prefix = f"threshold_{threshold_bps}_bps"
+    result: dict[str, Any] = {f"{prefix}_rows": int(len(threshold_rows))}
+    if threshold_rows.empty:
+        for method in ("uncalibrated", "bias", "linear", "naive", "sma"):
+            result[f"{prefix}_{method}_directional_accuracy"] = float("nan")
+        for method in ("uncalibrated", "bias", "linear"):
+            result[f"{method}_beats_naive_threshold_{threshold_bps}_bps_direction"] = False
+        return result
+
+    actual_direction = np.sign(threshold_rows["actual_return"].to_numpy(dtype=float))
+    for method in ("uncalibrated", "bias", "linear", "naive", "sma"):
+        result[f"{prefix}_{method}_directional_accuracy"] = _directional_accuracy(
+            actual_direction,
+            predictions[method].loc[threshold_rows.index],
+        )
+    for method in ("uncalibrated", "bias", "linear"):
+        result[f"{method}_beats_naive_threshold_{threshold_bps}_bps_direction"] = (
+            result[f"{prefix}_{method}_directional_accuracy"]
+            > result[f"{prefix}_naive_directional_accuracy"]
+        )
+    return result
 
 
 def _diagnostic_filename(metrics_path: Path) -> str:

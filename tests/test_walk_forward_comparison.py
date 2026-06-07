@@ -133,6 +133,7 @@ def test_compare_walk_forward_reports_joins_summary_and_diagnostics(tmp_path) ->
     base = output.loc[output["model_name"] == "Fake/Kronos-base"].iloc[0]
     assert base["timeframe"] == "1h"
     assert base["window_selection"] == "even"
+    assert base["input_transform"] == "raw"
     assert base["kronos_mae"] == pytest.approx(3.0)
     assert base["kronos_vs_naive_mae_ratio"] == pytest.approx(0.75)
     assert bool(base["beats_naive_mae"]) is True

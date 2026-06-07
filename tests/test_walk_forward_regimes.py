@@ -76,6 +76,7 @@ def test_analyze_walk_forward_regimes_buckets_by_target_return(tmp_path) -> None
     assert small_low["rows"] == 2
     assert small_low["sample_count"] == 3
     assert small_low["window_selection"] == "even"
+    assert small_low["input_transform"] == "raw"
     assert small_low["average_absolute_actual_return"] == pytest.approx(0.015)
     assert small_low["forecast_actual_return_correlation"] == pytest.approx(1.0)
     assert small_low["kronos_vs_naive_mae_ratio"] == pytest.approx(
@@ -97,7 +98,7 @@ def test_analyze_walk_forward_regimes_keeps_configs_separate(tmp_path) -> None:
         "Fake/Kronos-base",
         "Fake/Kronos-small",
     ]
-    assert output.groupby(["model_name", "sample_count", "window_selection"]).ngroups == 2
+    assert output.groupby(["model_name", "sample_count", "window_selection", "input_transform"]).ngroups == 2
 
 
 def test_analyze_walk_forward_regimes_marks_undefined_correlation(tmp_path) -> None:

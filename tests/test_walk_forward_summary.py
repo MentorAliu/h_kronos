@@ -93,6 +93,7 @@ def test_summarize_walk_forward_metrics_writes_per_timeframe_summary(tmp_path) -
     assert one_hour["top_p"] == pytest.approx(0.9)
     assert one_hour["sample_count"] == 1
     assert one_hour["window_selection"] == "even"
+    assert one_hour["input_transform"] == "raw"
     assert one_hour["rows"] == 2
     assert one_hour["kronos_mae"] == pytest.approx(3.0)
     assert one_hour["kronos_rmse"] == pytest.approx(10.0**0.5)
