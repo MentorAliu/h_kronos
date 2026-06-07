@@ -17,6 +17,10 @@ def write_metrics(path: Path) -> Path:
     pd.DataFrame(
         [
             {
+                "model_name": "Fake/Kronos-small",
+                "top_p": 0.9,
+                "sample_count": 1,
+                "window_selection": "even",
                 "timeframe": "1h",
                 "kronos_absolute_error": 2.0,
                 "kronos_squared_error": 4.0,
@@ -31,6 +35,10 @@ def write_metrics(path: Path) -> Path:
                 "forecasted_return": 0.01,
             },
             {
+                "model_name": "Fake/Kronos-small",
+                "top_p": 0.9,
+                "sample_count": 1,
+                "window_selection": "even",
                 "timeframe": "1h",
                 "kronos_absolute_error": 4.0,
                 "kronos_squared_error": 16.0,
@@ -45,6 +53,10 @@ def write_metrics(path: Path) -> Path:
                 "forecasted_return": 0.03,
             },
             {
+                "model_name": "Fake/Kronos-base",
+                "top_p": 0.9,
+                "sample_count": 1,
+                "window_selection": "recent",
                 "timeframe": "15m",
                 "kronos_absolute_error": 1.0,
                 "kronos_squared_error": 1.0,
@@ -75,7 +87,12 @@ def test_summarize_walk_forward_metrics_writes_per_timeframe_summary(tmp_path) -
     assert result.output_path == tmp_path / "metrics" / "run_walk_forward_summary.csv"
     output = pd.read_csv(result.output_path)
     assert list(output.columns) == WALK_FORWARD_SUMMARY_COLUMNS
-    one_hour = output.loc[output["timeframe"] == "1h"].iloc[0]
+    one_hour = output.loc[
+        (output["timeframe"] == "1h") & (output["model_name"] == "Fake/Kronos-small")
+    ].iloc[0]
+    assert one_hour["top_p"] == pytest.approx(0.9)
+    assert one_hour["sample_count"] == 1
+    assert one_hour["window_selection"] == "even"
     assert one_hour["rows"] == 2
     assert one_hour["kronos_mae"] == pytest.approx(3.0)
     assert one_hour["kronos_rmse"] == pytest.approx(10.0**0.5)

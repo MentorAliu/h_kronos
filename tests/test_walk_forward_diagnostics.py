@@ -18,6 +18,10 @@ def write_metrics(path: Path) -> Path:
     pd.DataFrame(
         [
             {
+                "model_name": "Fake/Kronos-small",
+                "top_p": 0.9,
+                "sample_count": 1,
+                "window_selection": "even",
                 "timeframe": "1h",
                 "kronos_close_error": -2.0,
                 "kronos_absolute_error": 2.0,
@@ -29,6 +33,10 @@ def write_metrics(path: Path) -> Path:
                 "forecasted_return": 0.01,
             },
             {
+                "model_name": "Fake/Kronos-small",
+                "top_p": 0.9,
+                "sample_count": 1,
+                "window_selection": "even",
                 "timeframe": "1h",
                 "kronos_close_error": 4.0,
                 "kronos_absolute_error": 4.0,
@@ -40,6 +48,10 @@ def write_metrics(path: Path) -> Path:
                 "forecasted_return": 0.03,
             },
             {
+                "model_name": "Fake/Kronos-small",
+                "top_p": 0.9,
+                "sample_count": 1,
+                "window_selection": "even",
                 "timeframe": "1h",
                 "kronos_close_error": 0.0,
                 "kronos_absolute_error": 0.0,
@@ -51,6 +63,10 @@ def write_metrics(path: Path) -> Path:
                 "forecasted_return": -0.01,
             },
             {
+                "model_name": "Fake/Kronos-base",
+                "top_p": 0.9,
+                "sample_count": 1,
+                "window_selection": "recent",
                 "timeframe": "15m",
                 "kronos_close_error": 1.0,
                 "kronos_absolute_error": 1.0,
@@ -80,8 +96,13 @@ def test_diagnose_walk_forward_metrics_writes_bias_and_confusion(tmp_path) -> No
     output = pd.read_csv(result.output_path)
     assert list(output.columns) == WALK_FORWARD_DIAGNOSTIC_COLUMNS
 
-    one_hour = output.loc[output["timeframe"] == "1h"].iloc[0]
+    one_hour = output.loc[
+        (output["timeframe"] == "1h") & (output["model_name"] == "Fake/Kronos-small")
+    ].iloc[0]
     assert one_hour["rows"] == 3
+    assert one_hour["top_p"] == pytest.approx(0.9)
+    assert one_hour["sample_count"] == 1
+    assert one_hour["window_selection"] == "even"
     assert one_hour["kronos_mean_signed_error"] == pytest.approx(2.0 / 3.0)
     assert one_hour["naive_mean_signed_error"] == pytest.approx(-1.0 / 3.0)
     assert one_hour["sma_mean_signed_error"] == pytest.approx(1.0 / 3.0)

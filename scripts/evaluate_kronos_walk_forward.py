@@ -12,7 +12,9 @@ if str(SRC) not in sys.path:
 from hourly_prediction.evaluation import (  # noqa: E402
     DEFAULT_MAX_WALK_FORWARD_WINDOWS,
     DEFAULT_SMA_WINDOW,
+    DEFAULT_WINDOW_SELECTION,
     EvaluationError,
+    SUPPORTED_WINDOW_SELECTIONS,
     evaluate_kronos_walk_forward,
 )
 from hourly_prediction.kronos_runner import (  # noqa: E402
@@ -50,6 +52,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--pred-len", type=int, default=DEFAULT_PRED_LEN)
     parser.add_argument("--model-name", default=DEFAULT_KRONOS_MODEL)
     parser.add_argument("--tokenizer-name", default=DEFAULT_KRONOS_TOKENIZER)
+    parser.add_argument("--top-p", type=float, default=0.9)
+    parser.add_argument("--sample-count", type=int, default=1)
+    parser.add_argument(
+        "--window-selection",
+        choices=SUPPORTED_WINDOW_SELECTIONS,
+        default=DEFAULT_WINDOW_SELECTION,
+    )
     return parser.parse_args()
 
 
@@ -68,6 +77,9 @@ def main() -> int:
             pred_len=args.pred_len,
             model_name=args.model_name,
             tokenizer_name=args.tokenizer_name,
+            top_p=args.top_p,
+            sample_count=args.sample_count,
+            window_selection=args.window_selection,
         )
     except (EvaluationError, KronosRuntimeError) as exc:
         print(f"Walk-forward evaluation failed: {exc}", file=sys.stderr)

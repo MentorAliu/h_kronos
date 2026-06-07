@@ -116,3 +116,112 @@ worse than naive close persistence on close-error metrics for both timeframes,
 while beating the 20-candle SMA baseline on MAE. Phase 5 paper-signal work
 should remain blocked until this baseline result is reviewed or a model/config
 comparison improves the close-error profile.
+
+## 2026-06-06 Phase 4D Model and Sampling Comparison
+
+Input comparison:
+
+```text
+outputs/metrics/binance_BTCUSDT_20260606T205214Z_phase4d_walk_forward_model_comparison.csv
+```
+
+Run shape:
+
+- Symbol: `BTC/USDT`
+- Timeframes: `1h`, `15m`
+- Lookback: `512`
+- Prediction length: `1`
+- Windows: `100` recent walk-forward targets per timeframe
+- SMA window: `20`
+- Sampling: `top_p=0.9`
+
+Summary:
+
+| Model | Sample Count | Timeframe | Rows | Kronos MAE | Naive MAE | SMA MAE | Kronos Directional Accuracy | Random Direction Accuracy | Beats Naive MAE |
+| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| `NeoQuasar/Kronos-base` | 1 | `15m` | 100 | 251.595145 | 157.150900 | 331.751630 | 0.50 | 0.27 | no |
+| `NeoQuasar/Kronos-base` | 1 | `1h` | 100 | 531.015483 | 403.730900 | 951.203450 | 0.58 | 0.28 | no |
+| `NeoQuasar/Kronos-small` | 1 | `15m` | 100 | 239.782008 | 157.150900 | 331.751630 | 0.43 | 0.27 | no |
+| `NeoQuasar/Kronos-small` | 1 | `1h` | 100 | 640.973461 | 403.730900 | 951.203450 | 0.46 | 0.28 | no |
+| `NeoQuasar/Kronos-small` | 3 | `15m` | 100 | 229.470303 | 157.150900 | 331.751630 | 0.44 | 0.27 | no |
+| `NeoQuasar/Kronos-small` | 3 | `1h` | 100 | 530.735658 | 403.730900 | 951.203450 | 0.58 | 0.28 | no |
+
+The best tested Kronos configuration by MAE was `Kronos-small` with
+`sample_count=3` on both timeframes, but it still did not beat naive close
+persistence. All tested Kronos configurations beat the 20-candle SMA baseline
+on MAE. Phase 5 paper-signal work should remain blocked; the next research
+step should either broaden evaluation history or investigate why naive close
+persistence remains stronger on close-error metrics.
+
+## 2026-06-06 Phase 4E Broadened Even-Window Coverage
+
+Input comparison:
+
+```text
+outputs/metrics/binance_BTCUSDT_20260606T205214Z_phase4e_even_walk_forward_model_comparison.csv
+```
+
+Run shape:
+
+- Symbol: `BTC/USDT`
+- Timeframes: `1h`, `15m`
+- Lookback: `512`
+- Prediction length: `1`
+- Windows: `400` evenly spaced walk-forward targets per timeframe
+- SMA window: `20`
+- Sampling: `top_p=0.9`
+
+Summary:
+
+| Model | Sample Count | Timeframe | Rows | Kronos MAE | Naive MAE | SMA MAE | Kronos Directional Accuracy | Random Direction Accuracy | Beats Naive MAE |
+| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| `NeoQuasar/Kronos-base` | 1 | `15m` | 400 | 273.606982 | 192.337150 | 457.178834 | 0.5275 | 0.3275 | no |
+| `NeoQuasar/Kronos-base` | 1 | `1h` | 400 | 328.870392 | 224.958375 | 599.485101 | 0.5200 | 0.3100 | no |
+| `NeoQuasar/Kronos-small` | 3 | `15m` | 400 | 246.769309 | 192.337150 | 457.178834 | 0.5450 | 0.3275 | no |
+| `NeoQuasar/Kronos-small` | 3 | `1h` | 400 | 282.469495 | 224.958375 | 599.485101 | 0.4925 | 0.3100 | no |
+
+The broader even-window run confirms the Phase 4D result across more historical
+targets from the current clean datasets: neither tested Kronos configuration
+beats naive close persistence on MAE/RMSE for `1h` or `15m`. Both tested
+configurations remain better than the 20-candle SMA baseline on MAE. Phase 5
+paper-signal work should remain blocked; the next research slice should focus
+on data depth, target formulation, or additional non-trading diagnostics.
+
+## 2026-06-07 Phase 4F Target and Regime Diagnostics
+
+Input diagnostics:
+
+```text
+outputs/metrics/binance_BTCUSDT_20260606T205214Z_phase4f_even_walk_forward_regime_diagnostics.csv
+```
+
+Run shape:
+
+- Inputs: Phase 4E `even` metrics for `Kronos-small sample_count=3` and `Kronos-base sample_count=1`
+- Regimes: 3 deterministic quantile buckets by absolute actual return per timeframe
+- Rows: 12 aggregate rows, covering 2 configs x 2 timeframes x 3 regimes
+
+Summary:
+
+| Model | Sample Count | Timeframe | Regime | Rows | Avg Abs Actual Return | Kronos MAE | Naive MAE | Kronos / Naive MAE Ratio | Directional Accuracy | Forecast/Actual Return Corr |
+| --- | ---: | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `NeoQuasar/Kronos-base` | 1 | `15m` | `q1_of_3_abs_return` | 133 | 0.000707 | 199.745772 | 46.273534 | 4.316631 | 0.548872 | 0.076418 |
+| `NeoQuasar/Kronos-base` | 1 | `15m` | `q2_of_3_abs_return` | 133 | 0.002378 | 228.468739 | 153.712857 | 1.486335 | 0.503759 | 0.002437 |
+| `NeoQuasar/Kronos-base` | 1 | `15m` | `q3_of_3_abs_return` | 134 | 0.005882 | 391.718378 | 375.646791 | 1.042784 | 0.529851 | 0.024672 |
+| `NeoQuasar/Kronos-base` | 1 | `1h` | `q1_of_3_abs_return` | 133 | 0.000558 | 192.535101 | 41.404286 | 4.650125 | 0.511278 | 0.076235 |
+| `NeoQuasar/Kronos-base` | 1 | `1h` | `q2_of_3_abs_return` | 133 | 0.002082 | 224.786544 | 154.776165 | 1.452333 | 0.511278 | 0.108928 |
+| `NeoQuasar/Kronos-base` | 1 | `1h` | `q3_of_3_abs_return` | 134 | 0.006914 | 567.495359 | 476.801119 | 1.190214 | 0.537313 | 0.139909 |
+| `NeoQuasar/Kronos-small` | 3 | `15m` | `q1_of_3_abs_return` | 133 | 0.000707 | 138.219094 | 46.273534 | 2.987001 | 0.578947 | 0.192799 |
+| `NeoQuasar/Kronos-small` | 3 | `15m` | `q2_of_3_abs_return` | 133 | 0.002378 | 197.566624 | 153.712857 | 1.285297 | 0.563910 | 0.028737 |
+| `NeoQuasar/Kronos-small` | 3 | `15m` | `q3_of_3_abs_return` | 134 | 0.005882 | 403.344948 | 375.646791 | 1.073735 | 0.492537 | -0.107864 |
+| `NeoQuasar/Kronos-small` | 3 | `1h` | `q1_of_3_abs_return` | 133 | 0.000558 | 141.347768 | 41.404286 | 3.413844 | 0.488722 | -0.056514 |
+| `NeoQuasar/Kronos-small` | 3 | `1h` | `q2_of_3_abs_return` | 133 | 0.002082 | 200.101336 | 154.776165 | 1.292843 | 0.556391 | 0.188036 |
+| `NeoQuasar/Kronos-small` | 3 | `1h` | `q3_of_3_abs_return` | 134 | 0.006914 | 504.291546 | 476.801119 | 1.057656 | 0.432836 | 0.012529 |
+
+Kronos does not only fail in low-move/noisy regimes: neither tested config
+beats naive MAE in any return bucket. The gap is largest in tiny-move regimes,
+where naive close persistence is very hard to beat, and narrows materially in
+the largest-return bucket. Forecasted-vs-actual return correlations are weak
+across buckets, so Phase 5 remains blocked. The next research slice should
+focus on data depth, target construction, or model input formulation rather
+than signal generation.
