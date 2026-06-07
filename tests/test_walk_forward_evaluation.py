@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import math
 from pathlib import Path
 from typing import Any
 
@@ -250,6 +251,56 @@ def test_walk_forward_relative_transform_uses_input_only_and_rescales_prediction
     assert output["kronos_close_error"].tolist() == pytest.approx([-4.5])
 
 
+def test_walk_forward_log_return_transform_uses_input_only_and_rescales_prediction(tmp_path) -> None:
+    clean_path = tmp_path / "clean" / "candles.csv"
+    manifest_path = tmp_path / "manifests" / "run_manifest.json"
+    write_clean(clean_path, closes=[100.0, 110.0, 121.0])
+    write_manifest(manifest_path, clean_path=clean_path, run_id="wf_run")
+    predictor = FixedPredictionPredictor(close=0.10, volume=1.5, amount=1.25)
+
+    result = evaluate_kronos_walk_forward(
+        manifest=manifest_path,
+        manifest_dir=tmp_path / "manifests",
+        output_dir=tmp_path / "metrics",
+        kronos_repo_path=tmp_path / "Kronos",
+        lookback=2,
+        max_windows=1,
+        sma_window=2,
+        input_transform="log-return",
+        predictor_loader=lambda **_: predictor,
+    )
+
+    assert (
+        result.output_path
+        == tmp_path
+        / "metrics"
+        / "wf_run_kronos-small_top-p-0p9_sample-count-1_recent_log-return_walk_forward_metrics.csv"
+    )
+    assert len(predictor.calls) == 1
+    call = predictor.calls[0]
+    target_timestamp = pd.Timestamp(call["y_timestamp"].iloc[0])
+    assert target_timestamp not in set(pd.to_datetime(call["x_timestamp"], utc=True))
+    assert call["df"]["close"].tolist() == pytest.approx([0.0, math.log(110.0 / 100.0)])
+    assert call["df"]["open"].tolist() == pytest.approx([0.0, math.log(110.0 / 100.0)])
+    assert call["df"]["high"].tolist() == pytest.approx(
+        [math.log(101.0 / 100.0), math.log(111.0 / 100.0)]
+    )
+    assert call["df"]["low"].tolist() == pytest.approx(
+        [math.log(99.0 / 100.0), math.log(109.0 / 100.0)]
+    )
+    assert call["df"]["volume"].tolist() == pytest.approx([1.0, 1.0])
+    assert call["df"]["amount"].tolist() == pytest.approx([1000.0 / 1050.0, 1100.0 / 1050.0])
+
+    output = pd.read_csv(result.output_path)
+    assert output["input_transform"].tolist() == ["log-return"]
+    assert output["current_close"].tolist() == [110.0]
+    assert output["target_close"].tolist() == [121.0]
+    assert output["kronos_close"].tolist() == pytest.approx([110.0 * math.exp(0.10)])
+    assert output["kronos_close_error"].tolist() == pytest.approx(
+        [110.0 * math.exp(0.10) - 121.0]
+    )
+
+
 def test_walk_forward_rejects_unknown_input_transform(tmp_path) -> None:
     clean_path = tmp_path / "clean" / "candles.csv"
     manifest_path = tmp_path / "manifests" / "run_manifest.json"
@@ -269,15 +320,20 @@ def test_walk_forward_rejects_unknown_input_transform(tmp_path) -> None:
 
 
 @pytest.mark.parametrize(
-    ("mutator", "message"),
+    ("input_transform", "mutator", "message"),
     [
-        (lambda clean: clean.__setitem__("close", [100.0, 0.0, 102.0]), "reference close"),
-        (lambda clean: clean.__setitem__("volume", [0.0, 0.0, 20.0]), "median volume"),
-        (lambda clean: clean.__setitem__("amount", [0.0, 0.0, 2040.0]), "median amount"),
+        ("relative", lambda clean: clean.__setitem__("close", [100.0, 0.0, 102.0]), "reference close"),
+        ("relative", lambda clean: clean.__setitem__("volume", [0.0, 0.0, 20.0]), "median volume"),
+        ("relative", lambda clean: clean.__setitem__("amount", [0.0, 0.0, 2040.0]), "median amount"),
+        ("log-return", lambda clean: clean.__setitem__("close", [100.0, 0.0, 102.0]), "positive OHLC"),
+        ("log-return", lambda clean: clean.__setitem__("high", [101.0, 0.0, 103.0]), "positive OHLC"),
+        ("log-return", lambda clean: clean.__setitem__("volume", [0.0, 0.0, 20.0]), "median volume"),
+        ("log-return", lambda clean: clean.__setitem__("amount", [0.0, 0.0, 2040.0]), "median amount"),
     ],
 )
-def test_walk_forward_relative_transform_fails_on_zero_references(
+def test_walk_forward_transforms_fail_on_invalid_references(
     tmp_path,
+    input_transform: str,
     mutator,
     message: str,
 ) -> None:
@@ -297,7 +353,7 @@ def test_walk_forward_relative_transform_fails_on_zero_references(
             kronos_repo_path=tmp_path / "Kronos",
             lookback=2,
             sma_window=2,
-            input_transform="relative",
+            input_transform=input_transform,
             predictor_loader=lambda **_: FixedPredictionPredictor(),
         )
 
@@ -436,7 +492,7 @@ def test_walk_forward_cli_parses_sampling_args(monkeypatch) -> None:
             "--window-selection",
             "even",
             "--input-transform",
-            "relative",
+            "log-return",
         ],
     )
 
@@ -445,4 +501,4 @@ def test_walk_forward_cli_parses_sampling_args(monkeypatch) -> None:
     assert args.top_p == pytest.approx(0.7)
     assert args.sample_count == 3
     assert args.window_selection == "even"
-    assert args.input_transform == "relative"
+    assert args.input_transform == "log-return"

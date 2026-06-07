@@ -401,3 +401,54 @@ on the held-out split; it does not beat naive on return MAE. Phase 5 remains
 blocked. The next research slice should focus on a different target definition
 or a more explicit return-space forecasting experiment rather than treating
 input normalization as sufficient.
+
+## 2026-06-07 Phase 4L Return-Space Target Experiment
+
+Input comparison:
+
+```text
+outputs/metrics/binancepublic_BTCUSDT_20260607T071726Z_phase4l_return_space_model_comparison.csv
+```
+
+Related diagnostics:
+
+```text
+outputs/metrics/binancepublic_BTCUSDT_20260607T071726Z_phase4l_return_space_regime_diagnostics.csv
+outputs/metrics/binancepublic_BTCUSDT_20260607T071726Z_phase4l_return_space_target_formulation.csv
+outputs/metrics/binancepublic_BTCUSDT_20260607T071726Z_phase4l_return_space_forecast_calibration.csv
+```
+
+Run shape:
+
+- Inputs: Binance public historical manifest from Phase 4H
+- Models: `Kronos-small sample_count=3` and `Kronos-base sample_count=1`
+- Input transforms: `raw`, `relative`, and `log-return`
+- Windows: `500` evenly spaced targets per timeframe, `1000` rows per transform/model run
+- Timeframes: `1h`, `15m`
+
+Summary:
+
+| Model | Sample Count | Input Transform | Timeframe | Rows | Kronos MAE | Naive MAE | Kronos RMSE | Naive RMSE | Directional Accuracy | Beats Naive MAE |
+| --- | ---: | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| `NeoQuasar/Kronos-base` | 1 | `log-return` | `15m` | 500 | 172.348211 | 137.776240 | 243.597339 | 221.836705 | 0.508 | no |
+| `NeoQuasar/Kronos-base` | 1 | `raw` | `15m` | 500 | 187.949908 | 137.776240 | 283.785438 | 221.836705 | 0.510 | no |
+| `NeoQuasar/Kronos-base` | 1 | `relative` | `15m` | 500 | 193.894492 | 137.776240 | 289.375097 | 221.836705 | 0.522 | no |
+| `NeoQuasar/Kronos-base` | 1 | `log-return` | `1h` | 500 | 365.519396 | 279.443480 | 514.199547 | 423.381350 | 0.470 | no |
+| `NeoQuasar/Kronos-base` | 1 | `raw` | `1h` | 500 | 390.918133 | 279.443480 | 578.379409 | 423.381350 | 0.488 | no |
+| `NeoQuasar/Kronos-base` | 1 | `relative` | `1h` | 500 | 382.862431 | 279.443480 | 538.019441 | 423.381350 | 0.536 | no |
+| `NeoQuasar/Kronos-small` | 3 | `log-return` | `15m` | 500 | 163.114536 | 137.776240 | 238.475103 | 221.836705 | 0.500 | no |
+| `NeoQuasar/Kronos-small` | 3 | `raw` | `15m` | 500 | 164.631058 | 137.776240 | 244.046875 | 221.836705 | 0.504 | no |
+| `NeoQuasar/Kronos-small` | 3 | `relative` | `15m` | 500 | 167.522711 | 137.776240 | 251.651290 | 221.836705 | 0.498 | no |
+| `NeoQuasar/Kronos-small` | 3 | `log-return` | `1h` | 500 | 334.284402 | 279.443480 | 491.195919 | 423.381350 | 0.482 | no |
+| `NeoQuasar/Kronos-small` | 3 | `raw` | `1h` | 500 | 317.723873 | 279.443480 | 454.806388 | 423.381350 | 0.532 | no |
+| `NeoQuasar/Kronos-small` | 3 | `relative` | `1h` | 500 | 342.270729 | 279.443480 | 504.897857 | 423.381350 | 0.526 | no |
+
+The log-return transform improves direct close-error MAE/RMSE versus raw and
+relative for `Kronos-base 15m`, `Kronos-base 1h`, and `Kronos-small 15m`, but
+it still does not beat naive close persistence on any direct walk-forward row.
+For `Kronos-small 1h`, raw input remains better than log-return. The calibration
+report shows small held-out linear-calibration edges over naive for both `1h`
+log-return rows, but not for either `15m` row and not on uncalibrated metrics.
+Phase 5 remains blocked. The next research slice should investigate whether a
+different model objective or explicit post-model return calibration can be
+validated robustly across more than the `1h` held-out split.

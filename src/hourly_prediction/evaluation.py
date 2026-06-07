@@ -326,7 +326,7 @@ DEFAULT_RANDOM_BASELINE_SEED = 42
 DEFAULT_WINDOW_SELECTION = "recent"
 SUPPORTED_WINDOW_SELECTIONS = ("recent", "even")
 DEFAULT_INPUT_TRANSFORM = "raw"
-SUPPORTED_INPUT_TRANSFORMS = ("raw", "relative")
+SUPPORTED_INPUT_TRANSFORMS = ("raw", "relative", "log-return")
 DEFAULT_RETURN_REGIME_BUCKETS = 3
 DEFAULT_TARGET_FORMULATION_THRESHOLDS_BPS = (0, 5, 10, 25)
 TARGET_FORMULATION_COLUMNS = [
@@ -1728,7 +1728,7 @@ def _transform_walk_forward_input(
     if input_transform == "raw":
         return x_df, {}
 
-    if input_transform != "relative":
+    if input_transform not in ("relative", "log-return"):
         raise EvaluationError(
             "input_transform must be one of: " + ", ".join(SUPPORTED_INPUT_TRANSFORMS)
         )
@@ -1736,16 +1736,25 @@ def _transform_walk_forward_input(
     reference_close = float(input_window["close"].iloc[-1])
     reference_volume = float(input_window["volume"].median())
     reference_amount = float(input_window["amount"].median())
-    if reference_close == 0:
+    if input_transform == "relative" and reference_close == 0:
         raise EvaluationError("Relative input transform requires non-zero reference close")
     if reference_volume == 0:
-        raise EvaluationError("Relative input transform requires non-zero median volume")
+        raise EvaluationError(f"{input_transform} input transform requires non-zero median volume")
     if reference_amount == 0:
-        raise EvaluationError("Relative input transform requires non-zero median amount")
+        raise EvaluationError(f"{input_transform} input transform requires non-zero median amount")
 
     transformed = x_df.copy()
-    for column in ("open", "high", "low", "close"):
-        transformed[column] = transformed[column] / reference_close
+    if input_transform == "relative":
+        for column in ("open", "high", "low", "close"):
+            transformed[column] = transformed[column] / reference_close
+    else:
+        prices = input_window[["open", "high", "low", "close"]].copy()
+        references = input_window["close"].shift(1)
+        references.iloc[0] = input_window["close"].iloc[0]
+        if (prices <= 0).any().any() or (references <= 0).any():
+            raise EvaluationError("log-return input transform requires positive OHLC prices")
+        for column in ("open", "high", "low", "close"):
+            transformed[column] = np.log(prices[column] / references)
     transformed["volume"] = transformed["volume"] / reference_volume
     transformed["amount"] = transformed["amount"] / reference_amount
     return transformed, {
@@ -1764,14 +1773,18 @@ def _rescale_prediction_row(
     if input_transform == "raw":
         return prediction_row
 
-    if input_transform != "relative":
+    if input_transform not in ("relative", "log-return"):
         raise EvaluationError(
             "input_transform must be one of: " + ", ".join(SUPPORTED_INPUT_TRANSFORMS)
         )
 
     rescaled = prediction_row.copy()
-    for column in ("open", "high", "low", "close"):
-        rescaled[column] = float(rescaled[column]) * refs["close"]
+    if input_transform == "relative":
+        for column in ("open", "high", "low", "close"):
+            rescaled[column] = float(rescaled[column]) * refs["close"]
+    else:
+        for column in ("open", "high", "low", "close"):
+            rescaled[column] = refs["close"] * float(np.exp(float(rescaled[column])))
     rescaled["volume"] = float(rescaled["volume"]) * refs["volume"]
     rescaled["amount"] = float(rescaled["amount"]) * refs["amount"]
     return rescaled
