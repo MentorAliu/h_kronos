@@ -290,3 +290,34 @@ Kronos/naive gap is still largest in tiny-return regimes and narrowest in the
 largest-return bucket, but it remains above `1.0`. Phase 5 remains blocked;
 the next research slice should investigate target or input formulation rather
 than increasing walk-forward scale again.
+
+## 2026-06-07 Phase 4I Target Formulation Diagnostics
+
+Input diagnostics:
+
+```text
+outputs/metrics/binancepublic_BTCUSDT_20260607T071726Z_phase4i_target_formulation_diagnostics.csv
+```
+
+Run shape:
+
+- Inputs: Phase 4H historical `even` metrics for `Kronos-small sample_count=3` and `Kronos-base sample_count=1`
+- Thresholded direction cutoffs: `0`, `5`, `10`, and `25` bps by absolute actual return
+- Rows: 4 aggregate rows, covering 2 configs x 2 timeframes
+
+Summary:
+
+| Model | Sample Count | Timeframe | Rows | Kronos Close MAE | Naive Close MAE | Kronos Return MAE | Naive Return MAE | Forecast/Actual Return Corr | 10 bps Direction Accuracy | 25 bps Direction Accuracy | Beats Naive Close MAE | Beats Naive Return MAE |
+| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |
+| `NeoQuasar/Kronos-base` | 1 | `15m` | 1000 | 198.006689 | 149.233380 | 0.002148 | 0.001612 | 0.198888 | 0.507692 | 0.553763 | no | no |
+| `NeoQuasar/Kronos-base` | 1 | `1h` | 1000 | 397.099599 | 274.777730 | 0.004344 | 0.003017 | -0.019652 | 0.512640 | 0.530660 | no | no |
+| `NeoQuasar/Kronos-small` | 3 | `15m` | 1000 | 178.774395 | 149.233380 | 0.001932 | 0.001612 | 0.214861 | 0.509615 | 0.510753 | no | no |
+| `NeoQuasar/Kronos-small` | 3 | `1h` | 1000 | 345.306029 | 274.777730 | 0.003787 | 0.003017 | 0.001925 | 0.509831 | 0.500000 | no | no |
+
+The target-formulation diagnostics show that the issue is not only raw close
+calibration: Kronos also loses to naive on return-error MAE for both tested
+models and timeframes. Thresholded directional accuracy is only slightly above
+coin-flip levels and does not provide enough evidence to unblock Phase 5. The
+next research slice should change the input or target formulation, for example
+evaluating return-space or normalized-price targets, before any signal or
+backtest work.

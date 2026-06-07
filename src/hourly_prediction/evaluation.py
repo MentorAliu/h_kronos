@@ -267,12 +267,75 @@ WALK_FORWARD_REGIME_COLUMNS = [
     "average_forecasted_return",
     "forecast_actual_return_correlation",
 ]
+TARGET_FORMULATION_REQUIRED_COLUMNS = [
+    *WALK_FORWARD_COMPARISON_KEY_COLUMNS,
+    "kronos_close_error",
+    "kronos_absolute_error",
+    "kronos_squared_error",
+    "naive_close_error",
+    "naive_absolute_error",
+    "naive_squared_error",
+    "sma_close_error",
+    "sma_absolute_error",
+    "sma_squared_error",
+    "actual_return",
+    "forecasted_return",
+    "naive_return",
+    "sma_return",
+]
+TARGET_FORMULATION_BASE_COLUMNS = [
+    *WALK_FORWARD_COMPARISON_KEY_COLUMNS,
+    "rows",
+    "kronos_close_mae",
+    "kronos_close_rmse",
+    "naive_close_mae",
+    "naive_close_rmse",
+    "sma_close_mae",
+    "sma_close_rmse",
+    "kronos_return_mae",
+    "kronos_return_rmse",
+    "naive_return_mae",
+    "naive_return_rmse",
+    "sma_return_mae",
+    "sma_return_rmse",
+    "kronos_mean_signed_close_error",
+    "kronos_median_signed_close_error",
+    "naive_mean_signed_close_error",
+    "naive_median_signed_close_error",
+    "sma_mean_signed_close_error",
+    "sma_median_signed_close_error",
+    "kronos_mean_signed_return_error",
+    "kronos_median_signed_return_error",
+    "naive_mean_signed_return_error",
+    "naive_median_signed_return_error",
+    "sma_mean_signed_return_error",
+    "sma_median_signed_return_error",
+    "forecast_actual_return_correlation",
+    "kronos_beats_naive_close_mae",
+    "kronos_beats_naive_return_mae",
+]
 DEFAULT_MAX_WALK_FORWARD_WINDOWS = 20
 DEFAULT_SMA_WINDOW = 20
 DEFAULT_RANDOM_BASELINE_SEED = 42
 DEFAULT_WINDOW_SELECTION = "recent"
 SUPPORTED_WINDOW_SELECTIONS = ("recent", "even")
 DEFAULT_RETURN_REGIME_BUCKETS = 3
+DEFAULT_TARGET_FORMULATION_THRESHOLDS_BPS = (0, 5, 10, 25)
+TARGET_FORMULATION_COLUMNS = [
+    *TARGET_FORMULATION_BASE_COLUMNS,
+    *[
+        column
+        for threshold in DEFAULT_TARGET_FORMULATION_THRESHOLDS_BPS
+        for column in (
+            f"threshold_{threshold}_bps_rows",
+            f"threshold_{threshold}_bps_kronos_directional_accuracy",
+            f"threshold_{threshold}_bps_naive_directional_accuracy",
+            f"threshold_{threshold}_bps_sma_directional_accuracy",
+            f"kronos_beats_naive_threshold_{threshold}_bps_direction",
+        )
+    ],
+    "kronos_beats_naive_any_threshold_direction",
+]
 
 
 class EvaluationError(ValueError):
@@ -336,6 +399,13 @@ class WalkForwardComparisonRun:
 
 @dataclass(frozen=True)
 class WalkForwardRegimeRun:
+    metrics_paths: tuple[Path, ...]
+    output_path: Path
+    rows: int
+
+
+@dataclass(frozen=True)
+class TargetFormulationRun:
     metrics_paths: tuple[Path, ...]
     output_path: Path
     rows: int
@@ -801,6 +871,62 @@ def analyze_walk_forward_regimes(
     )
 
 
+def analyze_target_formulation(
+    *,
+    metrics: list[str | Path],
+    output_dir: Path,
+    thresholds_bps: list[int] | tuple[int, ...] = DEFAULT_TARGET_FORMULATION_THRESHOLDS_BPS,
+    output_name: str = "walk_forward_target_formulation.csv",
+) -> TargetFormulationRun:
+    if not metrics:
+        raise EvaluationError("At least one walk-forward metrics file is required")
+    thresholds = tuple(int(threshold) for threshold in thresholds_bps)
+    if not thresholds:
+        raise EvaluationError("At least one target formulation threshold is required")
+    if any(threshold < 0 for threshold in thresholds):
+        raise EvaluationError("Target formulation thresholds must be non-negative")
+    if len(set(thresholds)) != len(thresholds):
+        raise EvaluationError("Target formulation thresholds must be unique")
+
+    metrics_paths = tuple(Path(path) for path in metrics)
+    for path in metrics_paths:
+        if not path.exists():
+            raise EvaluationError(f"Walk-forward metrics file does not exist: {path}")
+
+    metric_rows = _normalize_target_formulation_metrics(
+        pd.concat((pd.read_csv(path) for path in metrics_paths), ignore_index=True)
+    )
+    rows: list[dict[str, Any]] = []
+    for (model_name, top_p, sample_count, window_selection, timeframe), group in metric_rows.groupby(
+        WALK_FORWARD_COMPARISON_KEY_COLUMNS,
+        sort=True,
+    ):
+        rows.append(
+            _analyze_target_formulation_group(
+                model_name=model_name,
+                top_p=float(top_p),
+                sample_count=int(sample_count),
+                window_selection=window_selection,
+                timeframe=timeframe,
+                group=group,
+                thresholds_bps=thresholds,
+            )
+        )
+
+    if not rows:
+        raise EvaluationError("Target formulation analysis produced no rows")
+
+    columns = _target_formulation_columns(thresholds)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = output_dir / output_name
+    pd.DataFrame(rows, columns=columns).to_csv(output_path, index=False)
+    return TargetFormulationRun(
+        metrics_paths=metrics_paths,
+        output_path=output_path,
+        rows=len(rows),
+    )
+
+
 def _normalize_clean(clean: pd.DataFrame, *, timeframe: str) -> pd.DataFrame:
     if list(clean.columns) != CLEAN_COLUMNS:
         raise EvaluationError(
@@ -1061,6 +1187,51 @@ def _normalize_walk_forward_regime_metrics(metrics: pd.DataFrame) -> pd.DataFram
     normalized["timeframe"] = normalized["timeframe"].astype(str)
     normalized["sample_count"] = normalized["sample_count"].astype(int)
     normalized["absolute_actual_return"] = normalized["actual_return"].abs()
+    return normalized
+
+
+def _normalize_target_formulation_metrics(metrics: pd.DataFrame) -> pd.DataFrame:
+    missing = [
+        column
+        for column in TARGET_FORMULATION_REQUIRED_COLUMNS
+        if column not in metrics.columns
+    ]
+    if missing:
+        raise EvaluationError(
+            "Target formulation metrics missing required column(s): " + ", ".join(missing)
+        )
+
+    normalized = metrics[TARGET_FORMULATION_REQUIRED_COLUMNS].copy()
+    numeric_columns = [
+        "top_p",
+        "sample_count",
+        "kronos_close_error",
+        "kronos_absolute_error",
+        "kronos_squared_error",
+        "naive_close_error",
+        "naive_absolute_error",
+        "naive_squared_error",
+        "sma_close_error",
+        "sma_absolute_error",
+        "sma_squared_error",
+        "actual_return",
+        "forecasted_return",
+        "naive_return",
+        "sma_return",
+    ]
+    for column in numeric_columns:
+        normalized[column] = pd.to_numeric(normalized[column], errors="coerce")
+    if normalized[numeric_columns].isna().any().any():
+        raise EvaluationError("Target formulation metrics contain invalid numeric values")
+    if (normalized["top_p"] <= 0).any() or (normalized["top_p"] > 1).any():
+        raise EvaluationError("Target formulation metrics contain invalid top_p values")
+    if (normalized["sample_count"] <= 0).any():
+        raise EvaluationError("Target formulation metrics contain invalid sample_count values")
+
+    normalized["model_name"] = normalized["model_name"].astype(str)
+    normalized["window_selection"] = normalized["window_selection"].astype(str)
+    normalized["timeframe"] = normalized["timeframe"].astype(str)
+    normalized["sample_count"] = normalized["sample_count"].astype(int)
     return normalized
 
 
@@ -1489,6 +1660,130 @@ def _safe_correlation(left: pd.Series, right: pd.Series) -> float:
     if left_values.std(ddof=0) == 0 or right_values.std(ddof=0) == 0:
         return float("nan")
     return float(left_values.corr(right_values))
+
+
+def _target_formulation_columns(thresholds_bps: tuple[int, ...]) -> list[str]:
+    return [
+        *TARGET_FORMULATION_BASE_COLUMNS,
+        *[
+            column
+            for threshold in thresholds_bps
+            for column in (
+                f"threshold_{threshold}_bps_rows",
+                f"threshold_{threshold}_bps_kronos_directional_accuracy",
+                f"threshold_{threshold}_bps_naive_directional_accuracy",
+                f"threshold_{threshold}_bps_sma_directional_accuracy",
+                f"kronos_beats_naive_threshold_{threshold}_bps_direction",
+            )
+        ],
+        "kronos_beats_naive_any_threshold_direction",
+    ]
+
+
+def _analyze_target_formulation_group(
+    *,
+    model_name: str,
+    top_p: float,
+    sample_count: int,
+    window_selection: str,
+    timeframe: str,
+    group: pd.DataFrame,
+    thresholds_bps: tuple[int, ...],
+) -> dict[str, Any]:
+    kronos_return_error = group["forecasted_return"] - group["actual_return"]
+    naive_return_error = group["naive_return"] - group["actual_return"]
+    sma_return_error = group["sma_return"] - group["actual_return"]
+
+    kronos_return_mae = float(kronos_return_error.abs().mean())
+    naive_return_mae = float(naive_return_error.abs().mean())
+    kronos_close_mae = float(group["kronos_absolute_error"].mean())
+    naive_close_mae = float(group["naive_absolute_error"].mean())
+
+    row: dict[str, Any] = {
+        "model_name": model_name,
+        "top_p": top_p,
+        "sample_count": sample_count,
+        "window_selection": window_selection,
+        "timeframe": timeframe,
+        "rows": int(len(group)),
+        "kronos_close_mae": kronos_close_mae,
+        "kronos_close_rmse": float(np.sqrt(group["kronos_squared_error"].mean())),
+        "naive_close_mae": naive_close_mae,
+        "naive_close_rmse": float(np.sqrt(group["naive_squared_error"].mean())),
+        "sma_close_mae": float(group["sma_absolute_error"].mean()),
+        "sma_close_rmse": float(np.sqrt(group["sma_squared_error"].mean())),
+        "kronos_return_mae": kronos_return_mae,
+        "kronos_return_rmse": _rmse(kronos_return_error),
+        "naive_return_mae": naive_return_mae,
+        "naive_return_rmse": _rmse(naive_return_error),
+        "sma_return_mae": float(sma_return_error.abs().mean()),
+        "sma_return_rmse": _rmse(sma_return_error),
+        "kronos_mean_signed_close_error": float(group["kronos_close_error"].mean()),
+        "kronos_median_signed_close_error": float(group["kronos_close_error"].median()),
+        "naive_mean_signed_close_error": float(group["naive_close_error"].mean()),
+        "naive_median_signed_close_error": float(group["naive_close_error"].median()),
+        "sma_mean_signed_close_error": float(group["sma_close_error"].mean()),
+        "sma_median_signed_close_error": float(group["sma_close_error"].median()),
+        "kronos_mean_signed_return_error": float(kronos_return_error.mean()),
+        "kronos_median_signed_return_error": float(kronos_return_error.median()),
+        "naive_mean_signed_return_error": float(naive_return_error.mean()),
+        "naive_median_signed_return_error": float(naive_return_error.median()),
+        "sma_mean_signed_return_error": float(sma_return_error.mean()),
+        "sma_median_signed_return_error": float(sma_return_error.median()),
+        "forecast_actual_return_correlation": _safe_correlation(
+            group["forecasted_return"],
+            group["actual_return"],
+        ),
+        "kronos_beats_naive_close_mae": kronos_close_mae < naive_close_mae,
+        "kronos_beats_naive_return_mae": kronos_return_mae < naive_return_mae,
+    }
+
+    threshold_beats: list[bool] = []
+    for threshold in thresholds_bps:
+        threshold_result = _threshold_direction_metrics(group, threshold_bps=threshold)
+        row.update(threshold_result)
+        threshold_beats.append(
+            bool(threshold_result[f"kronos_beats_naive_threshold_{threshold}_bps_direction"])
+        )
+    row["kronos_beats_naive_any_threshold_direction"] = any(threshold_beats)
+    return row
+
+
+def _rmse(values: pd.Series) -> float:
+    return float(np.sqrt(np.mean(np.square(values))))
+
+
+def _threshold_direction_metrics(group: pd.DataFrame, *, threshold_bps: int) -> dict[str, Any]:
+    threshold_return = threshold_bps / 10_000
+    threshold_rows = group.loc[group["actual_return"].abs() >= threshold_return]
+    prefix = f"threshold_{threshold_bps}_bps"
+    if threshold_rows.empty:
+        kronos_accuracy = float("nan")
+        naive_accuracy = float("nan")
+        sma_accuracy = float("nan")
+        beats_naive = False
+    else:
+        actual_direction = np.sign(threshold_rows["actual_return"].to_numpy(dtype=float))
+        kronos_accuracy = _directional_accuracy(
+            actual_direction,
+            threshold_rows["forecasted_return"],
+        )
+        naive_accuracy = _directional_accuracy(actual_direction, threshold_rows["naive_return"])
+        sma_accuracy = _directional_accuracy(actual_direction, threshold_rows["sma_return"])
+        beats_naive = kronos_accuracy > naive_accuracy
+
+    return {
+        f"{prefix}_rows": int(len(threshold_rows)),
+        f"{prefix}_kronos_directional_accuracy": kronos_accuracy,
+        f"{prefix}_naive_directional_accuracy": naive_accuracy,
+        f"{prefix}_sma_directional_accuracy": sma_accuracy,
+        f"kronos_beats_naive_threshold_{threshold_bps}_bps_direction": beats_naive,
+    }
+
+
+def _directional_accuracy(actual_direction: np.ndarray, predicted_returns: pd.Series) -> float:
+    predicted_direction = np.sign(pd.to_numeric(predicted_returns, errors="coerce").to_numpy(dtype=float))
+    return float(np.mean(predicted_direction == actual_direction))
 
 
 def _diagnostic_filename(metrics_path: Path) -> str:
