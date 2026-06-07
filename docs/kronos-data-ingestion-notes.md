@@ -101,3 +101,31 @@ pred_len: 1
 ```
 
 Do not start with `1m`, `4h`, or 24h horizons. They add noise, storage, and modeling complexity before the core 1h/15m next-candle baselines are proven.
+
+## Historical Backfill Path
+
+Use Binance public monthly spot kline ZIPs for deeper historical evaluation once
+the recent CCXT refresh path is stable.
+
+Implemented command:
+
+```text
+python scripts/backfill_binance_klines.py --symbol BTCUSDT --timeframe 1h --timeframe 15m --start-month 2025-01 --end-month 2026-05
+```
+
+The first bounded backfill wrote:
+
+```text
+outputs/manifests/binancepublic_BTCUSDT_20260607T071726Z_manifest.json
+```
+
+Validated rows:
+
+| Timeframe | Clean Rows | Start | End |
+| --- | ---: | --- | --- |
+| `1h` | 12384 | `2025-01-01T00:00:00Z` | `2026-05-31T23:00:00Z` |
+| `15m` | 49536 | `2025-01-01T00:00:00Z` | `2026-05-31T23:45:00Z` |
+
+Backfilled raw and clean data still follow the same project schema, map
+`BTCUSDT` to `BTC/USDT`, infer Binance millisecond vs microsecond timestamps,
+and validate through the standard candle validator before a manifest is written.
