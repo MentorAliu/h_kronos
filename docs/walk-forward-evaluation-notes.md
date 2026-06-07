@@ -225,3 +225,68 @@ the largest-return bucket. Forecasted-vs-actual return correlations are weak
 across buckets, so Phase 5 remains blocked. The next research slice should
 focus on data depth, target construction, or model input formulation rather
 than signal generation.
+
+## 2026-06-07 Phase 4H Historical Walk-Forward Evaluation
+
+Input manifest:
+
+```text
+outputs/manifests/binancepublic_BTCUSDT_20260607T071726Z_manifest.json
+```
+
+Input comparison:
+
+```text
+outputs/metrics/binancepublic_BTCUSDT_20260607T071726Z_phase4h_even_walk_forward_model_comparison.csv
+```
+
+Input regimes:
+
+```text
+outputs/metrics/binancepublic_BTCUSDT_20260607T071726Z_phase4h_even_walk_forward_regime_diagnostics.csv
+```
+
+Run shape:
+
+- Source: Binance public monthly spot klines, `2025-01` through `2026-05`
+- Symbol: `BTC/USDT`
+- Timeframes: `1h`, `15m`
+- Lookback: `512`
+- Prediction length: `1`
+- Windows: `1000` evenly spaced walk-forward targets per timeframe
+- SMA window: `20`
+- Sampling: `top_p=0.9`
+
+Summary:
+
+| Model | Sample Count | Timeframe | Rows | Kronos MAE | Naive MAE | SMA MAE | Kronos RMSE | Naive RMSE | Directional Accuracy | Random Direction Accuracy | Beats Naive MAE |
+| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| `NeoQuasar/Kronos-base` | 1 | `15m` | 1000 | 198.006689 | 149.233380 | 379.131199 | 323.690120 | 238.781881 | 0.516 | 0.343 | no |
+| `NeoQuasar/Kronos-base` | 1 | `1h` | 1000 | 397.099599 | 274.777730 | 790.347289 | 566.596991 | 402.717696 | 0.503 | 0.318 | no |
+| `NeoQuasar/Kronos-small` | 3 | `15m` | 1000 | 178.774395 | 149.233380 | 379.131199 | 300.691439 | 238.781881 | 0.511 | 0.343 | no |
+| `NeoQuasar/Kronos-small` | 3 | `1h` | 1000 | 345.306029 | 274.777730 | 790.347289 | 491.713236 | 402.717696 | 0.519 | 0.318 | no |
+
+Regime diagnostics:
+
+| Model | Sample Count | Timeframe | Regime | Rows | Kronos / Naive MAE Ratio | Directional Accuracy | Forecast/Actual Return Corr |
+| --- | ---: | --- | --- | ---: | ---: | ---: | ---: |
+| `NeoQuasar/Kronos-base` | 1 | `15m` | `q1_of_3_abs_return` | 333 | 3.411471 | 0.528529 | 0.094496 |
+| `NeoQuasar/Kronos-base` | 1 | `15m` | `q2_of_3_abs_return` | 333 | 1.420170 | 0.513514 | 0.012793 |
+| `NeoQuasar/Kronos-base` | 1 | `15m` | `q3_of_3_abs_return` | 334 | 1.094302 | 0.505988 | 0.227848 |
+| `NeoQuasar/Kronos-base` | 1 | `1h` | `q1_of_3_abs_return` | 333 | 4.373915 | 0.495495 | -0.002678 |
+| `NeoQuasar/Kronos-base` | 1 | `1h` | `q2_of_3_abs_return` | 333 | 1.696442 | 0.477477 | -0.021014 |
+| `NeoQuasar/Kronos-base` | 1 | `1h` | `q3_of_3_abs_return` | 334 | 1.096971 | 0.535928 | -0.023089 |
+| `NeoQuasar/Kronos-small` | 3 | `15m` | `q1_of_3_abs_return` | 333 | 2.828761 | 0.510511 | 0.102555 |
+| `NeoQuasar/Kronos-small` | 3 | `15m` | `q2_of_3_abs_return` | 333 | 1.207331 | 0.522523 | 0.049224 |
+| `NeoQuasar/Kronos-small` | 3 | `15m` | `q3_of_3_abs_return` | 334 | 1.036348 | 0.500000 | 0.235967 |
+| `NeoQuasar/Kronos-small` | 3 | `1h` | `q1_of_3_abs_return` | 333 | 3.185471 | 0.543544 | 0.035249 |
+| `NeoQuasar/Kronos-small` | 3 | `1h` | `q2_of_3_abs_return` | 333 | 1.324878 | 0.513514 | -0.020366 |
+| `NeoQuasar/Kronos-small` | 3 | `1h` | `q3_of_3_abs_return` | 334 | 1.060047 | 0.500000 | 0.004924 |
+
+The deeper historical run confirms the prior gate. Neither tested Kronos
+configuration beats naive close persistence on MAE/RMSE for either timeframe,
+and Kronos does not beat naive in any absolute-return regime bucket. The
+Kronos/naive gap is still largest in tiny-return regimes and narrowest in the
+largest-return bucket, but it remains above `1.0`. Phase 5 remains blocked;
+the next research slice should investigate target or input formulation rather
+than increasing walk-forward scale again.
