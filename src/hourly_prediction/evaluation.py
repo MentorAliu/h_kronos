@@ -415,6 +415,127 @@ FORECAST_CALIBRATION_COLUMNS = [
     "bias_beats_naive_any_threshold_direction",
     "linear_beats_naive_any_threshold_direction",
 ]
+ROLLING_FORECAST_CALIBRATION_BASE_COLUMNS = [
+    *WALK_FORWARD_COMPARISON_KEY_COLUMNS,
+    "fold",
+    "folds",
+    "train_rows",
+    "test_rows",
+    "train_start_timestamp",
+    "train_end_timestamp",
+    "test_start_timestamp",
+    "test_end_timestamp",
+    "bias_correction",
+    "linear_alpha",
+    "linear_beta",
+    "linear_degenerate",
+    "test_forecast_actual_return_correlation",
+    "uncalibrated_return_mae",
+    "uncalibrated_return_rmse",
+    "uncalibrated_close_mae",
+    "uncalibrated_close_rmse",
+    "bias_return_mae",
+    "bias_return_rmse",
+    "bias_close_mae",
+    "bias_close_rmse",
+    "linear_return_mae",
+    "linear_return_rmse",
+    "linear_close_mae",
+    "linear_close_rmse",
+    "naive_return_mae",
+    "naive_return_rmse",
+    "naive_close_mae",
+    "naive_close_rmse",
+    "sma_return_mae",
+    "sma_return_rmse",
+    "sma_close_mae",
+    "sma_close_rmse",
+    "uncalibrated_beats_naive_return_mae",
+    "uncalibrated_beats_naive_close_mae",
+    "uncalibrated_beats_sma_return_mae",
+    "uncalibrated_beats_sma_close_mae",
+    "bias_beats_naive_return_mae",
+    "bias_beats_naive_close_mae",
+    "bias_beats_sma_return_mae",
+    "bias_beats_sma_close_mae",
+    "linear_beats_naive_return_mae",
+    "linear_beats_naive_close_mae",
+    "linear_beats_sma_return_mae",
+    "linear_beats_sma_close_mae",
+]
+ROLLING_FORECAST_CALIBRATION_COLUMNS = [
+    *ROLLING_FORECAST_CALIBRATION_BASE_COLUMNS,
+    *[
+        column
+        for threshold in DEFAULT_TARGET_FORMULATION_THRESHOLDS_BPS
+        for column in (
+            f"threshold_{threshold}_bps_rows",
+            f"threshold_{threshold}_bps_uncalibrated_directional_accuracy",
+            f"threshold_{threshold}_bps_bias_directional_accuracy",
+            f"threshold_{threshold}_bps_linear_directional_accuracy",
+            f"threshold_{threshold}_bps_naive_directional_accuracy",
+            f"threshold_{threshold}_bps_sma_directional_accuracy",
+            f"uncalibrated_beats_naive_threshold_{threshold}_bps_direction",
+            f"uncalibrated_beats_sma_threshold_{threshold}_bps_direction",
+            f"bias_beats_naive_threshold_{threshold}_bps_direction",
+            f"bias_beats_sma_threshold_{threshold}_bps_direction",
+            f"linear_beats_naive_threshold_{threshold}_bps_direction",
+            f"linear_beats_sma_threshold_{threshold}_bps_direction",
+        )
+    ],
+    "uncalibrated_beats_naive_any_threshold_direction",
+    "uncalibrated_beats_sma_any_threshold_direction",
+    "bias_beats_naive_any_threshold_direction",
+    "bias_beats_sma_any_threshold_direction",
+    "linear_beats_naive_any_threshold_direction",
+    "linear_beats_sma_any_threshold_direction",
+]
+ROLLING_FORECAST_CALIBRATION_AGGREGATE_COLUMNS = [
+    *WALK_FORWARD_COMPARISON_KEY_COLUMNS,
+    "fold_count",
+    "uncalibrated_return_mae_mean",
+    "uncalibrated_return_mae_std",
+    "uncalibrated_close_mae_mean",
+    "uncalibrated_close_mae_std",
+    "bias_return_mae_mean",
+    "bias_return_mae_std",
+    "bias_close_mae_mean",
+    "bias_close_mae_std",
+    "linear_return_mae_mean",
+    "linear_return_mae_std",
+    "linear_close_mae_mean",
+    "linear_close_mae_std",
+    "naive_return_mae_mean",
+    "naive_return_mae_std",
+    "naive_close_mae_mean",
+    "naive_close_mae_std",
+    "sma_return_mae_mean",
+    "sma_return_mae_std",
+    "sma_close_mae_mean",
+    "sma_close_mae_std",
+    "uncalibrated_beats_naive_return_mae_folds",
+    "uncalibrated_beats_naive_close_mae_folds",
+    "uncalibrated_beats_sma_return_mae_folds",
+    "uncalibrated_beats_sma_close_mae_folds",
+    "bias_beats_naive_return_mae_folds",
+    "bias_beats_naive_close_mae_folds",
+    "bias_beats_sma_return_mae_folds",
+    "bias_beats_sma_close_mae_folds",
+    "linear_beats_naive_return_mae_folds",
+    "linear_beats_naive_close_mae_folds",
+    "linear_beats_sma_return_mae_folds",
+    "linear_beats_sma_close_mae_folds",
+    "uncalibrated_vs_naive_return_mae_worst_delta",
+    "uncalibrated_vs_naive_close_mae_worst_delta",
+    "bias_vs_naive_return_mae_worst_delta",
+    "bias_vs_naive_close_mae_worst_delta",
+    "linear_vs_naive_return_mae_worst_delta",
+    "linear_vs_naive_close_mae_worst_delta",
+    "linear_beats_naive_return_mae_all_folds",
+    "linear_beats_naive_close_mae_all_folds",
+    "linear_beats_sma_return_mae_all_folds",
+    "linear_beats_sma_close_mae_all_folds",
+]
 
 
 class EvaluationError(ValueError):
@@ -495,6 +616,15 @@ class ForecastCalibrationRun:
     metrics_paths: tuple[Path, ...]
     output_path: Path
     rows: int
+
+
+@dataclass(frozen=True)
+class RollingForecastCalibrationRun:
+    metrics_paths: tuple[Path, ...]
+    output_path: Path
+    aggregate_output_path: Path
+    rows: int
+    aggregate_rows: int
 
 
 def build_evaluation_windows(
@@ -1113,6 +1243,82 @@ def analyze_forecast_calibration(
     )
 
 
+def analyze_rolling_forecast_calibration(
+    *,
+    metrics: list[str | Path],
+    output_dir: Path,
+    folds: int = 5,
+    thresholds_bps: list[int] | tuple[int, ...] = DEFAULT_TARGET_FORMULATION_THRESHOLDS_BPS,
+    output_name: str = "walk_forward_rolling_forecast_calibration.csv",
+    aggregate_output_name: str = "walk_forward_rolling_forecast_calibration_aggregate.csv",
+) -> RollingForecastCalibrationRun:
+    if not metrics:
+        raise EvaluationError("At least one walk-forward metrics file is required")
+    if folds <= 0:
+        raise EvaluationError("folds must be positive")
+    thresholds = tuple(int(threshold) for threshold in thresholds_bps)
+    if not thresholds:
+        raise EvaluationError("At least one rolling forecast calibration threshold is required")
+    if any(threshold < 0 for threshold in thresholds):
+        raise EvaluationError("Rolling forecast calibration thresholds must be non-negative")
+    if len(set(thresholds)) != len(thresholds):
+        raise EvaluationError("Rolling forecast calibration thresholds must be unique")
+
+    metrics_paths = tuple(Path(path) for path in metrics)
+    for path in metrics_paths:
+        if not path.exists():
+            raise EvaluationError(f"Walk-forward metrics file does not exist: {path}")
+
+    metric_rows = _normalize_rolling_forecast_calibration_metrics(
+        pd.concat((pd.read_csv(path) for path in metrics_paths), ignore_index=True)
+    )
+    rows: list[dict[str, Any]] = []
+    for (
+        model_name,
+        top_p,
+        sample_count,
+        window_selection,
+        input_transform,
+        timeframe,
+    ), group in metric_rows.groupby(
+        WALK_FORWARD_COMPARISON_KEY_COLUMNS,
+        sort=True,
+    ):
+        rows.extend(
+            _analyze_rolling_forecast_calibration_group(
+                model_name=model_name,
+                top_p=float(top_p),
+                sample_count=int(sample_count),
+                window_selection=window_selection,
+                input_transform=input_transform,
+                timeframe=timeframe,
+                group=group,
+                folds=folds,
+                thresholds_bps=thresholds,
+            )
+        )
+
+    if not rows:
+        raise EvaluationError("Rolling forecast calibration analysis produced no rows")
+
+    columns = _rolling_forecast_calibration_columns(thresholds)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = output_dir / output_name
+    fold_frame = pd.DataFrame(rows, columns=columns)
+    fold_frame.to_csv(output_path, index=False)
+
+    aggregate_rows = _aggregate_rolling_forecast_calibration(fold_frame)
+    aggregate_output_path = output_dir / aggregate_output_name
+    aggregate_rows.to_csv(aggregate_output_path, index=False)
+    return RollingForecastCalibrationRun(
+        metrics_paths=metrics_paths,
+        output_path=output_path,
+        aggregate_output_path=aggregate_output_path,
+        rows=len(fold_frame),
+        aggregate_rows=len(aggregate_rows),
+    )
+
+
 def _normalize_clean(clean: pd.DataFrame, *, timeframe: str) -> pd.DataFrame:
     if list(clean.columns) != CLEAN_COLUMNS:
         raise EvaluationError(
@@ -1473,6 +1679,62 @@ def _normalize_forecast_calibration_metrics(metrics: pd.DataFrame) -> pd.DataFra
     )
     if normalized["forecast_timestamp"].isna().any():
         raise EvaluationError("Forecast calibration metrics contain invalid forecast timestamps")
+
+    normalized["model_name"] = normalized["model_name"].astype(str)
+    normalized["window_selection"] = normalized["window_selection"].astype(str)
+    normalized["input_transform"] = normalized["input_transform"].astype(str)
+    normalized["timeframe"] = normalized["timeframe"].astype(str)
+    normalized["sample_count"] = normalized["sample_count"].astype(int)
+    return normalized
+
+
+def _normalize_rolling_forecast_calibration_metrics(metrics: pd.DataFrame) -> pd.DataFrame:
+    metrics = _with_default_input_transform(metrics)
+    missing = [
+        column
+        for column in FORECAST_CALIBRATION_REQUIRED_COLUMNS
+        if column not in metrics.columns
+    ]
+    if missing:
+        raise EvaluationError(
+            "Rolling forecast calibration metrics missing required column(s): "
+            + ", ".join(missing)
+        )
+
+    normalized = metrics[FORECAST_CALIBRATION_REQUIRED_COLUMNS].copy()
+    numeric_columns = [
+        "top_p",
+        "sample_count",
+        "current_close",
+        "actual_return",
+        "forecasted_return",
+        "naive_return",
+        "sma_return",
+    ]
+    for column in numeric_columns:
+        normalized[column] = pd.to_numeric(normalized[column], errors="coerce")
+    if normalized[numeric_columns].isna().any().any():
+        raise EvaluationError("Rolling forecast calibration metrics contain invalid numeric values")
+    if (normalized["top_p"] <= 0).any() or (normalized["top_p"] > 1).any():
+        raise EvaluationError("Rolling forecast calibration metrics contain invalid top_p values")
+    if (normalized["sample_count"] <= 0).any():
+        raise EvaluationError(
+            "Rolling forecast calibration metrics contain invalid sample_count values"
+        )
+    if (normalized["current_close"] <= 0).any():
+        raise EvaluationError(
+            "Rolling forecast calibration metrics contain invalid current_close values"
+        )
+
+    normalized["forecast_timestamp"] = pd.to_datetime(
+        normalized["forecast_timestamp"],
+        utc=True,
+        errors="coerce",
+    )
+    if normalized["forecast_timestamp"].isna().any():
+        raise EvaluationError(
+            "Rolling forecast calibration metrics contain invalid forecast timestamps"
+        )
 
     normalized["model_name"] = normalized["model_name"].astype(str)
     normalized["window_selection"] = normalized["window_selection"].astype(str)
@@ -2149,6 +2411,36 @@ def _forecast_calibration_columns(thresholds_bps: tuple[int, ...]) -> list[str]:
     ]
 
 
+def _rolling_forecast_calibration_columns(thresholds_bps: tuple[int, ...]) -> list[str]:
+    return [
+        *ROLLING_FORECAST_CALIBRATION_BASE_COLUMNS,
+        *[
+            column
+            for threshold in thresholds_bps
+            for column in (
+                f"threshold_{threshold}_bps_rows",
+                f"threshold_{threshold}_bps_uncalibrated_directional_accuracy",
+                f"threshold_{threshold}_bps_bias_directional_accuracy",
+                f"threshold_{threshold}_bps_linear_directional_accuracy",
+                f"threshold_{threshold}_bps_naive_directional_accuracy",
+                f"threshold_{threshold}_bps_sma_directional_accuracy",
+                f"uncalibrated_beats_naive_threshold_{threshold}_bps_direction",
+                f"uncalibrated_beats_sma_threshold_{threshold}_bps_direction",
+                f"bias_beats_naive_threshold_{threshold}_bps_direction",
+                f"bias_beats_sma_threshold_{threshold}_bps_direction",
+                f"linear_beats_naive_threshold_{threshold}_bps_direction",
+                f"linear_beats_sma_threshold_{threshold}_bps_direction",
+            )
+        ],
+        "uncalibrated_beats_naive_any_threshold_direction",
+        "uncalibrated_beats_sma_any_threshold_direction",
+        "bias_beats_naive_any_threshold_direction",
+        "bias_beats_sma_any_threshold_direction",
+        "linear_beats_naive_any_threshold_direction",
+        "linear_beats_sma_any_threshold_direction",
+    ]
+
+
 def _analyze_forecast_calibration_group(
     *,
     model_name: str,
@@ -2245,6 +2537,186 @@ def _analyze_forecast_calibration_group(
     return row
 
 
+def _analyze_rolling_forecast_calibration_group(
+    *,
+    model_name: str,
+    top_p: float,
+    sample_count: int,
+    window_selection: str,
+    input_transform: str,
+    timeframe: str,
+    group: pd.DataFrame,
+    folds: int,
+    thresholds_bps: tuple[int, ...],
+) -> list[dict[str, Any]]:
+    ordered = group.sort_values("forecast_timestamp", kind="mergesort").reset_index(drop=True)
+    minimum_rows = 2 * (folds + 1)
+    if len(ordered) < minimum_rows:
+        raise EvaluationError(
+            "Rolling forecast calibration requires at least "
+            f"{minimum_rows} rows for {model_name} {timeframe}; found {len(ordered)}"
+        )
+
+    blocks = [ordered.iloc[indexes].copy() for indexes in np.array_split(np.arange(len(ordered)), folds + 1)]
+    if any(len(block) < 2 for block in blocks):
+        raise EvaluationError(
+            f"Rolling forecast calibration requires at least 2 rows per fold block for {model_name} {timeframe}"
+        )
+
+    rows: list[dict[str, Any]] = []
+    for fold_index in range(1, folds + 1):
+        train = pd.concat(blocks[:fold_index], ignore_index=True)
+        test = blocks[fold_index].copy().reset_index(drop=True)
+        rows.append(
+            _score_rolling_forecast_calibration_fold(
+                model_name=model_name,
+                top_p=top_p,
+                sample_count=sample_count,
+                window_selection=window_selection,
+                input_transform=input_transform,
+                timeframe=timeframe,
+                fold=fold_index,
+                folds=folds,
+                train=train,
+                test=test,
+                thresholds_bps=thresholds_bps,
+            )
+        )
+    return rows
+
+
+def _score_rolling_forecast_calibration_fold(
+    *,
+    model_name: str,
+    top_p: float,
+    sample_count: int,
+    window_selection: str,
+    input_transform: str,
+    timeframe: str,
+    fold: int,
+    folds: int,
+    train: pd.DataFrame,
+    test: pd.DataFrame,
+    thresholds_bps: tuple[int, ...],
+) -> dict[str, Any]:
+    if len(train) < 2 or len(test) < 2:
+        raise EvaluationError(
+            f"Rolling forecast calibration requires at least 2 train and 2 test rows for {model_name} {timeframe}"
+        )
+
+    bias_correction = float((train["actual_return"] - train["forecasted_return"]).mean())
+    linear_alpha, linear_beta, linear_degenerate = _fit_linear_return_calibration(train)
+
+    predictions = {
+        "uncalibrated": test["forecasted_return"],
+        "bias": test["forecasted_return"] + bias_correction,
+        "linear": linear_alpha + linear_beta * test["forecasted_return"],
+        "naive": test["naive_return"],
+        "sma": test["sma_return"],
+    }
+    method_metrics = {
+        method: _score_return_prediction(
+            predicted_return=predicted_return,
+            actual_return=test["actual_return"],
+            current_close=test["current_close"],
+        )
+        for method, predicted_return in predictions.items()
+    }
+
+    row: dict[str, Any] = {
+        "model_name": model_name,
+        "top_p": top_p,
+        "sample_count": sample_count,
+        "window_selection": window_selection,
+        "input_transform": input_transform,
+        "timeframe": timeframe,
+        "fold": fold,
+        "folds": folds,
+        "train_rows": int(len(train)),
+        "test_rows": int(len(test)),
+        "train_start_timestamp": _format_timestamp(train["forecast_timestamp"].iloc[0]),
+        "train_end_timestamp": _format_timestamp(train["forecast_timestamp"].iloc[-1]),
+        "test_start_timestamp": _format_timestamp(test["forecast_timestamp"].iloc[0]),
+        "test_end_timestamp": _format_timestamp(test["forecast_timestamp"].iloc[-1]),
+        "bias_correction": bias_correction,
+        "linear_alpha": linear_alpha,
+        "linear_beta": linear_beta,
+        "linear_degenerate": linear_degenerate,
+        "test_forecast_actual_return_correlation": _safe_correlation(
+            test["forecasted_return"],
+            test["actual_return"],
+        ),
+    }
+    for method, metrics in method_metrics.items():
+        row.update(
+            {
+                f"{method}_return_mae": metrics["return_mae"],
+                f"{method}_return_rmse": metrics["return_rmse"],
+                f"{method}_close_mae": metrics["close_mae"],
+                f"{method}_close_rmse": metrics["close_rmse"],
+            }
+        )
+
+    for method in ("uncalibrated", "bias", "linear"):
+        row[f"{method}_beats_naive_return_mae"] = (
+            row[f"{method}_return_mae"] < row["naive_return_mae"]
+        )
+        row[f"{method}_beats_naive_close_mae"] = row[f"{method}_close_mae"] < row["naive_close_mae"]
+        row[f"{method}_beats_sma_return_mae"] = row[f"{method}_return_mae"] < row["sma_return_mae"]
+        row[f"{method}_beats_sma_close_mae"] = row[f"{method}_close_mae"] < row["sma_close_mae"]
+
+    threshold_beats = {
+        method: {"naive": [], "sma": []}
+        for method in ("uncalibrated", "bias", "linear")
+    }
+    for threshold in thresholds_bps:
+        threshold_result = _rolling_calibration_threshold_direction_metrics(
+            test,
+            predictions=predictions,
+            threshold_bps=threshold,
+        )
+        row.update(threshold_result)
+        for method in threshold_beats:
+            threshold_beats[method]["naive"].append(
+                bool(threshold_result[f"{method}_beats_naive_threshold_{threshold}_bps_direction"])
+            )
+            threshold_beats[method]["sma"].append(
+                bool(threshold_result[f"{method}_beats_sma_threshold_{threshold}_bps_direction"])
+            )
+    for method, baselines in threshold_beats.items():
+        row[f"{method}_beats_naive_any_threshold_direction"] = any(baselines["naive"])
+        row[f"{method}_beats_sma_any_threshold_direction"] = any(baselines["sma"])
+    return row
+
+
+def _aggregate_rolling_forecast_calibration(fold_frame: pd.DataFrame) -> pd.DataFrame:
+    rows: list[dict[str, Any]] = []
+    methods = ("uncalibrated", "bias", "linear", "naive", "sma")
+    calibrated_methods = ("uncalibrated", "bias", "linear")
+    for key, group in fold_frame.groupby(WALK_FORWARD_COMPARISON_KEY_COLUMNS, sort=True):
+        row: dict[str, Any] = dict(zip(WALK_FORWARD_COMPARISON_KEY_COLUMNS, key, strict=True))
+        row["fold_count"] = int(len(group))
+        for method in methods:
+            for metric in ("return_mae", "close_mae"):
+                values = pd.to_numeric(group[f"{method}_{metric}"], errors="coerce")
+                row[f"{method}_{metric}_mean"] = float(values.mean())
+                row[f"{method}_{metric}_std"] = float(values.std(ddof=0))
+        for method in calibrated_methods:
+            for baseline in ("naive", "sma"):
+                for metric in ("return_mae", "close_mae"):
+                    column = f"{method}_beats_{baseline}_{metric}"
+                    row[f"{column}_folds"] = int(group[column].astype(bool).sum())
+            for metric in ("return_mae", "close_mae"):
+                delta = group[f"{method}_{metric}"] - group[f"naive_{metric}"]
+                row[f"{method}_vs_naive_{metric}_worst_delta"] = float(delta.max())
+        for baseline in ("naive", "sma"):
+            for metric in ("return_mae", "close_mae"):
+                column = f"linear_beats_{baseline}_{metric}"
+                row[f"{column}_all_folds"] = bool(group[column].astype(bool).all())
+        rows.append(row)
+    return pd.DataFrame(rows, columns=ROLLING_FORECAST_CALIBRATION_AGGREGATE_COLUMNS)
+
+
 def _fit_linear_return_calibration(train: pd.DataFrame) -> tuple[float, float, bool]:
     forecast = train["forecasted_return"].to_numpy(dtype=float)
     actual = train["actual_return"].to_numpy(dtype=float)
@@ -2302,6 +2774,42 @@ def _calibration_threshold_direction_metrics(
         result[f"{method}_beats_naive_threshold_{threshold_bps}_bps_direction"] = (
             result[f"{prefix}_{method}_directional_accuracy"]
             > result[f"{prefix}_naive_directional_accuracy"]
+        )
+    return result
+
+
+def _rolling_calibration_threshold_direction_metrics(
+    test: pd.DataFrame,
+    *,
+    predictions: dict[str, pd.Series],
+    threshold_bps: int,
+) -> dict[str, Any]:
+    threshold_return = threshold_bps / 10_000
+    threshold_rows = test.loc[test["actual_return"].abs() >= threshold_return]
+    prefix = f"threshold_{threshold_bps}_bps"
+    result: dict[str, Any] = {f"{prefix}_rows": int(len(threshold_rows))}
+    if threshold_rows.empty:
+        for method in ("uncalibrated", "bias", "linear", "naive", "sma"):
+            result[f"{prefix}_{method}_directional_accuracy"] = float("nan")
+        for method in ("uncalibrated", "bias", "linear"):
+            result[f"{method}_beats_naive_threshold_{threshold_bps}_bps_direction"] = False
+            result[f"{method}_beats_sma_threshold_{threshold_bps}_bps_direction"] = False
+        return result
+
+    actual_direction = np.sign(threshold_rows["actual_return"].to_numpy(dtype=float))
+    for method in ("uncalibrated", "bias", "linear", "naive", "sma"):
+        result[f"{prefix}_{method}_directional_accuracy"] = _directional_accuracy(
+            actual_direction,
+            predictions[method].loc[threshold_rows.index],
+        )
+    for method in ("uncalibrated", "bias", "linear"):
+        result[f"{method}_beats_naive_threshold_{threshold_bps}_bps_direction"] = (
+            result[f"{prefix}_{method}_directional_accuracy"]
+            > result[f"{prefix}_naive_directional_accuracy"]
+        )
+        result[f"{method}_beats_sma_threshold_{threshold_bps}_bps_direction"] = (
+            result[f"{prefix}_{method}_directional_accuracy"]
+            > result[f"{prefix}_sma_directional_accuracy"]
         )
     return result
 

@@ -452,3 +452,44 @@ log-return rows, but not for either `15m` row and not on uncalibrated metrics.
 Phase 5 remains blocked. The next research slice should investigate whether a
 different model objective or explicit post-model return calibration can be
 validated robustly across more than the `1h` held-out split.
+
+## 2026-06-07 Phase 4M Rolling Calibration Validation
+
+Rolling calibration artifacts:
+
+```text
+outputs/metrics/binancepublic_BTCUSDT_20260607T071726Z_phase4m_rolling_calibration_validation.csv
+outputs/metrics/binancepublic_BTCUSDT_20260607T071726Z_phase4m_rolling_calibration_validation_aggregate.csv
+```
+
+Run shape:
+
+- Inputs: existing Phase 4L walk-forward metrics only; Kronos was not rerun.
+- Folds: `5` chronological expanding-train folds per model/config/timeframe.
+- Fold rows: `60` total, covering `2` models x `3` input transforms x `2` timeframes x `5` folds.
+- Aggregate rows: `12`.
+- Calibration methods: uncalibrated, train-only bias correction, and train-only linear return calibration.
+
+Linear calibration summary:
+
+| Model | Sample Count | Input Transform | Timeframe | Folds | Linear Return MAE | Naive Return MAE | Linear Close MAE | Naive Close MAE | Linear Beats Naive Return Folds | Beats Naive All Folds |
+| --- | ---: | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| `NeoQuasar/Kronos-base` | 1 | `log-return` | `15m` | 5 | 0.001520 | 0.001354 | 138.197923 | 123.023914 | 0 | no |
+| `NeoQuasar/Kronos-base` | 1 | `log-return` | `1h` | 5 | 0.002836 | 0.002820 | 265.435087 | 264.110002 | 3 | no |
+| `NeoQuasar/Kronos-base` | 1 | `raw` | `15m` | 5 | 0.001425 | 0.001354 | 129.830256 | 123.023914 | 0 | no |
+| `NeoQuasar/Kronos-base` | 1 | `raw` | `1h` | 5 | 0.002895 | 0.002820 | 270.976127 | 264.110002 | 2 | no |
+| `NeoQuasar/Kronos-base` | 1 | `relative` | `15m` | 5 | 0.001370 | 0.001354 | 124.319510 | 123.023914 | 1 | no |
+| `NeoQuasar/Kronos-base` | 1 | `relative` | `1h` | 5 | 0.002908 | 0.002820 | 273.030690 | 264.110002 | 2 | no |
+| `NeoQuasar/Kronos-small` | 3 | `log-return` | `15m` | 5 | 0.001517 | 0.001354 | 138.340661 | 123.023914 | 1 | no |
+| `NeoQuasar/Kronos-small` | 3 | `log-return` | `1h` | 5 | 0.002848 | 0.002820 | 266.879998 | 264.110002 | 1 | no |
+| `NeoQuasar/Kronos-small` | 3 | `raw` | `15m` | 5 | 0.001429 | 0.001354 | 130.411223 | 123.023914 | 0 | no |
+| `NeoQuasar/Kronos-small` | 3 | `raw` | `1h` | 5 | 0.002850 | 0.002820 | 266.065685 | 264.110002 | 2 | no |
+| `NeoQuasar/Kronos-small` | 3 | `relative` | `15m` | 5 | 0.001374 | 0.001354 | 124.808977 | 123.023914 | 1 | no |
+| `NeoQuasar/Kronos-small` | 3 | `relative` | `1h` | 5 | 0.002947 | 0.002820 | 275.013412 | 264.110002 | 2 | no |
+
+The Phase 4L `1h` held-out calibration edge does not survive rolling validation.
+No model, input transform, or timeframe beats naive close persistence across all
+folds, and mean linear-calibrated return/close MAE is worse than naive in every
+aggregate row. Linear calibration beats the weaker SMA baseline on every fold,
+but SMA is not the acceptance gate. Phase 5 remains blocked; the next research
+slice should investigate target/model formulation instead of signal generation.
